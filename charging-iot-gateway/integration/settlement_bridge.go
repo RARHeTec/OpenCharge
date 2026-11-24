@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/RARHeTec/OpenCharge/charging-common/money"
 	"github.com/RARHeTec/OpenCharge/charging-iot-gateway/adapter-yunkuaichong/protocol"
@@ -25,10 +26,22 @@ type SettlementBridge struct {
 }
 
 type BillConfig struct {
-	TenantID  string
-	StationID string
+	TenantID        string
+	StationID       string
 	UserID          string // In production this comes from the token/card mapping.
-	TariffVersionID string // Platform snapshot id, never derived from pile data.
+	TariffVersionID string // Fallback snapshot id when no timestamp is available.
+	// TariffAt resolves the version effective at the charge start time. This is
+	// what makes a delayed offline bill price with historical tariffs instead of
+	// whatever version happens to be current when it finally uploads.
+	TariffAt TariffAtResolver
+	// Location interprets the device CP56 wall-clock time.
+	Location *time.Location
+}
+
+// TariffAtResolver returns the tariff version id effective at a moment.
+type TariffAtResolver interface {
+	// ResolveTariffVersion returns "" when nothing matches.
+	ResolveTariffVersion(ctx context.Context, tenantID, stationID string, at time.Time) (string, error)
 }
 
 func NewSettlementBridge(base *Bridge, settlement SettlementPort, cfg BillConfig) *SettlementBridge {
@@ -48,7 +61,11 @@ func (b *SettlementBridge) OnEvent(e ykcserver.Event) {
 		return
 	}
 	bill := ToBill(e, txn, b.cfg)
-	res, err := b.settlement.Settle(context.Background(), bill)
+	ctx := context.Background()
+	if vid, ok := b.resolveTariff(ctx, txn); ok {
+		bill.TariffVersionID = vid
+	}
+	res, err := b.settlement.Settle(ctx, bill)
 	if err != nil {
 		slog.Error("settlement failed", "traceId", e.TraceID, "txn", txn.TransactionID, "err", err)
 		return
@@ -62,6 +79,25 @@ func (b *SettlementBridge) OnEvent(e ykcserver.Event) {
 		"platform", res.PlatformAmount.String(),
 		"charged", res.ChargeAmount.String(),
 	)
+}
+
+// resolveTariff picks the tariff version valid at the charge start time. It
+// falls back to the configured snapshot when no resolver or timestamp exists.
+func (b *SettlementBridge) resolveTariff(ctx context.Context, txn protocol.TransactionBody) (string, bool) {
+	if b.cfg.TariffAt == nil || len(txn.StartCP56) < 7 {
+		return "", false
+	}
+	start, err := protocol.ParseCP56Time2a(txn.StartCP56, b.cfg.Location)
+	if err != nil {
+		slog.Warn("cannot parse charge start time, using configured tariff",
+			"err", err, "txn", txn.TransactionID)
+		return "", false
+	}
+	vid, err := b.cfg.TariffAt.ResolveTariffVersion(ctx, b.cfg.TenantID, b.cfg.StationID, start)
+	if err != nil || vid == "" {
+		return "", false
+	}
+	return vid, true
 }
 
 // ToBill converts a parsed 0x3B record into the settlement input.

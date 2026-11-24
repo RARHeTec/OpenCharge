@@ -19,6 +19,7 @@ func main() {
 	device := flag.String("device", "55031412782301", "device id (14 BCD digits)")
 	gun := flag.Int("gun", 1, "gun number")
 	priceStr := flag.String("price", "0.60000", "tariff price Yuan/kWh the pile bills at (5 decimals)")
+	minutesAgo := flag.Int("minutes-ago", 0, "charge start time offset in minutes (simulates a delayed offline bill)")
 	flag.Parse()
 
 	conn, err := net.Dial("tcp", *addr)
@@ -100,6 +101,12 @@ func main() {
 	binary.LittleEndian.PutUint32(txnBody[50:54], amountUnits) // sharp segment amount
 	binary.LittleEndian.PutUint32(txnBody[112:116], 5000)
 	binary.LittleEndian.PutUint32(txnBody[120:124], amountUnits) // total amount
+	// Charge window: start = now - minutesAgo, end = now. A delayed offline
+	// bill carries an old start time, which drives historical tariff selection.
+	start := time.Now().Add(-time.Duration(*minutesAgo) * time.Minute)
+	copy(txnBody[24:31], protocol.EncodeCP56Time2a(start))
+	copy(txnBody[31:38], protocol.EncodeCP56Time2a(time.Now()))
+	fmt.Printf("charge start=%s (minutes-ago=%d)\n", start.Format(time.RFC3339), *minutesAgo)
 	txnBody[141] = 0x01 // app start
 	send(protocol.TypeTransaction, txnBody)
 	recv() // transaction ack

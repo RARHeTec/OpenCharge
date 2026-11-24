@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/RARHeTec/OpenCharge/charging-common/money"
 )
@@ -87,16 +88,36 @@ func (s *MemoryTariffStore) Get(_ context.Context, id string) (TariffVersion, bo
 	v, ok := s.data[id]
 	return v, ok, nil
 }
-func (s *MemoryTariffStore) Latest(_ context.Context, tenantID, stationID string, _ int64) (TariffVersion, bool, error) {
+// Latest returns the version that was effective at `at` (unix milliseconds).
+// Picking the newest version regardless of time would misprice a delayed
+// offline bill with a tariff that did not exist while the car was charging.
+func (s *MemoryTariffStore) Latest(_ context.Context, tenantID, stationID string, at int64) (TariffVersion, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	atTime := time.UnixMilli(at)
 	var best TariffVersion
 	found := false
 	for _, v := range s.data {
-		if v.TenantID == tenantID && v.StationID == stationID {
+		if v.TenantID != tenantID || v.StationID != stationID {
+			continue
+		}
+		if !v.Effective.After(atTime) {
 			if !found || v.Effective.After(best.Effective) {
 				best, found = v, true
 			}
+		}
+	}
+	if found {
+		return best, true, nil
+	}
+	// No version was effective yet at that time (e.g. station went live later):
+	// fall back to the earliest one rather than failing the bill.
+	for _, v := range s.data {
+		if v.TenantID != tenantID || v.StationID != stationID {
+			continue
+		}
+		if !found || v.Effective.Before(best.Effective) {
+			best, found = v, true
 		}
 	}
 	return best, found, nil

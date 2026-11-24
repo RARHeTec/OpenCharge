@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 func main() {
 	addr := flag.String("addr", ":8080", "server listen address")
 	dsn := flag.String("dsn", "", "PostgreSQL DSN; empty = in-memory demo mode")
+	adminKeys := flag.String("admin-key", "", "comma-separated keyId:tenantId pairs; empty disables auth (dev only)")
 	flag.Parse()
 
 	orders, tariffs, _, audits := openStores(*dsn)
@@ -35,10 +37,11 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	admin.NewAPI(audits, orders).WithTariffs(tariffs).Register(mux)
-	slog.Info("admin API mounted", "dsn", maskDSN(*dsn))
+	api := admin.NewAPI(audits, orders).WithTariffs(tariffs).WithKeys(parseAdminKeys(*adminKeys))
+	api.Register(mux)
+	slog.Info("admin API mounted", "dsn", maskDSN(*dsn), "auth", *adminKeys != "")
 
-	srv := &http.Server{Addr: *addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Addr: *addr, Handler: api.AuthMiddleware(mux), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		slog.Info("core server listening", "addr", *addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -94,4 +97,22 @@ func maskDSN(dsn string) string {
 		return "memory"
 	}
 	return "postgres://***"
+}
+
+func parseAdminKeys(spec string) admin.KeyRegistry {
+	if spec == "" {
+		return nil
+	}
+	pairs := make(map[string]admin.Principal)
+	for _, part := range strings.Split(spec, ",") {
+		kv := strings.SplitN(strings.TrimSpace(part), ":", 2)
+		if len(kv) != 2 || kv[0] == "" || kv[1] == "" {
+			continue
+		}
+		pairs[kv[0]] = admin.Principal{KeyID: kv[0], TenantID: kv[1]}
+	}
+	if len(pairs) == 0 {
+		return nil
+	}
+	return admin.NewStaticKeys(pairs)
 }

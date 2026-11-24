@@ -353,10 +353,15 @@ func (s *PGStore) getTariff(_ context.Context, id string) (TariffVersion, bool, 
 	return rowToTariff(r), true, nil
 }
 
-func (s *PGStore) latestTariff(_ context.Context, tenantID, stationID string, _ int64) (TariffVersion, bool, error) {
+func (s *PGStore) latestTariff(_ context.Context, tenantID, stationID string, at int64) (TariffVersion, bool, error) {
 	var r tariffRow
-	err := s.db.Where("tenant_id = ? AND station_id = ?", tenantID, stationID).
-		Order("effective DESC").First(&r).Error
+	q := s.db.Where("tenant_id = ? AND station_id = ?", tenantID, stationID)
+	if at > 0 {
+		// Only versions already effective at the requested instant, so a
+		// delayed offline bill is priced with the tariff of its charge time.
+		q = q.Where("effective <= ?", time.UnixMilli(at))
+	}
+	err := q.Order("effective DESC").First(&r).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return TariffVersion{}, false, nil
 	}

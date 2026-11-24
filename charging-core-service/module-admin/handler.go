@@ -21,6 +21,7 @@ type API struct {
 	states  state.Store
 	tariffs  storage.TariffStore
 	resolver Resolver
+	keys     KeyRegistry
 }
 
 func NewAPI(store storage.AuditStore, orders storage.OrderStore, states ...state.Store) *API {
@@ -63,8 +64,12 @@ func (a *API) handleOrders(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
+	tenant, ok := a.authorize(w, r)
+	if !ok {
+		return
+	}
 	limit := 50
-	orders, err := a.orders.List(r.Context(), tenantFrom(r), limit)
+	orders, err := a.orders.List(r.Context(), tenant, limit)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -77,7 +82,11 @@ func (a *API) handleExceptions(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	rows, err := a.store.ListExceptions(r.Context(), tenantFrom(r), 100)
+	tenant, ok := a.authorize(w, r)
+	if !ok {
+		return
+	}
+	rows, err := a.store.ListExceptions(r.Context(), tenant, 100)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -208,6 +217,12 @@ type resolveRequest struct {
 // Resolver is the settlement engine surface needed to close an exception.
 type Resolver interface {
 	ResolveException(ctx context.Context, req billing.ResolveRequest) (billing.ResolveResult, error)
+}
+
+// WithKeys enables API key authentication and tenant scoping.
+func (a *API) WithKeys(k KeyRegistry) *API {
+	a.keys = k
+	return a
 }
 
 // WithResolver attaches the settlement engine so exception disposition moves money.

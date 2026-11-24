@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 func main() {
 	addr := flag.String("addr", ":8768", "TCP listen address for charging piles")
 	adminAddr := flag.String("admin", ":8081", "admin HTTP API address")
+	adminKeys := flag.String("admin-key", "", "comma-separated keyId:tenantId pairs; empty disables auth (dev only)")
 	tenantID := flag.String("tenant", "T1", "tenant id for demo bills")
 	stationID := flag.String("station", "S1", "station id for demo bills")
 	userID := flag.String("user", "U1", "wallet user id for demo bills")
@@ -49,7 +51,10 @@ func main() {
 	defer eventBus.Close()
 	base := integration.NewBridge(&busSink{bus: eventBus}, lock.NewMemoryLocker())
 	settlementBridge := integration.NewSettlementBridge(base, settlement, integration.BillConfig{
-		TenantID: *tenantID, StationID: *stationID, UserID: *userID, TariffVersionID: *tariffID,
+		TenantID: *tenantID, StationID: *stationID, UserID: *userID,
+		TariffVersionID: *tariffID,
+		TariffAt:        tariffAtResolver{store: tariffs},
+		Location:        time.Local,
 	})
 	stateStore := openStateStore(*redisAddr)
 	_, telemetryBuffer := openTelemetryStore(*tdengine)
@@ -59,12 +64,19 @@ func main() {
 
 	// Admin HTTP API reads the same stores.
 	mux := http.NewServeMux()
-	adminapi.NewAPI(audits, orders, stateStore).WithTariffs(tariffs).WithResolver(settlement).Register(mux)
+	api := adminapi.NewAPI(audits, orders, stateStore).
+		WithTariffs(tariffs).WithResolver(settlement).WithKeys(parseAdminKeys(*adminKeys))
+	if *adminKeys != "" {
+		slog.Info("admin API authentication enabled")
+	} else {
+		slog.Warn("admin API authentication disabled (dev mode); pass -admin-key in production")
+	}
+	api.Register(mux)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	adminSrv := &http.Server{Addr: *adminAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	adminSrv := &http.Server{Addr: *adminAddr, Handler: api.AuthMiddleware(mux), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		slog.Info("admin API listening", "addr", *adminAddr)
 		if err := adminSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -164,4 +176,44 @@ func (s *busSink) Publish(topic, key string, e ykcserver.Event) {
 	if err := s.bus.Publish(context.Background(), topic, key, e); err != nil {
 		slog.Warn("event publish failed", "topic", topic, "err", err)
 	}
+}
+
+// tariffAtResolver picks the tariff snapshot effective at a moment so delayed
+// offline bills are priced with the rate that was live during charging.
+type tariffAtResolver struct {
+	store storage.TariffStore
+}
+
+func (r tariffAtResolver) ResolveTariffVersion(ctx context.Context, tenantID, stationID string, at time.Time) (string, error) {
+	v, ok, err := r.store.Latest(ctx, tenantID, stationID, at.UnixMilli())
+	if err != nil || !ok {
+		return "", err
+	}
+	slog.Info("resolved tariff for charge time", "tariff", v.ID, "at", at.Format(time.RFC3339))
+	return v.ID, nil
+}
+
+// parseAdminKeys turns "key1:T1,key2:T2" into a key registry. An empty string
+// returns nil, which disables auth for local single-tenant use.
+func parseAdminKeys(spec string) adminapi.KeyRegistry {
+	if spec == "" {
+		return nil
+	}
+	pairs := make(map[string]adminapi.Principal)
+	for _, part := range strings.Split(spec, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		kv := strings.SplitN(part, ":", 2)
+		if len(kv) != 2 || kv[0] == "" || kv[1] == "" {
+			slog.Warn("ignoring malformed admin key entry", "entry", part)
+			continue
+		}
+		pairs[kv[0]] = adminapi.Principal{KeyID: kv[0], TenantID: kv[1]}
+	}
+	if len(pairs) == 0 {
+		return nil
+	}
+	return adminapi.NewStaticKeys(pairs)
 }

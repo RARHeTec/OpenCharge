@@ -89,6 +89,16 @@ func (a *API) handleTariffs(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json: " + err.Error()})
 			return
 		}
+		// The tenant is taken from the credential when auth is enabled, so a
+		// caller scoped to T1 cannot publish a tariff under T2.
+		tenant, ok := a.resolveTenant(r, req.TenantID)
+		if !ok {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error": "tenant mismatch with credential",
+			})
+			return
+		}
+		req.TenantID = tenant
 		v, err := buildTariff(req)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
