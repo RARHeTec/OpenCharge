@@ -34,7 +34,28 @@ go work sync
 go build ./...
 ```
 
-详见 [docs/architecture.md](docs/architecture.md) 与 [charging-deploy/README.md](charging-deploy/README.md)。
+### 本地一键启动（网关 + 管理后台）
+
+```bash
+scripts/dev.sh start              # 编译并同时启动桩端网关、admin API、管理后台
+scripts/dev.sh start --middleware # 额外用 Docker 启动 Redis / TDengine / Kafka
+scripts/dev.sh status             # 查看运行状态与端口
+scripts/dev.sh seed 3             # 生成 3 笔模拟账单，方便造演示数据
+scripts/dev.sh logs gateway       # 看网关日志（也可 frontend / all）
+scripts/dev.sh stop               # 全部停止
+```
+
+启动后：
+
+| 服务 | 地址 | 说明 |
+|---|---|---|
+| 管理后台 | http://localhost:5173 | 订单 / 异常单 / 审计 / 电价版本 / 场站设备 |
+| admin API | http://localhost:8081 | 需 `X-API-Key: key-t1`（默认 `key-t1:T1,key-t2:T2`） |
+| 桩端 TCP | localhost:8768 | 云快充 V1.6 模拟桩接入 |
+
+默认使用已验证的内存实现（无需 Docker）。`--middleware` 开启真实中间件；任一中间件不可用会自动回退到内存。可用 `ADMIN_KEYS`、`TCP_ADDR`、`ADMIN_ADDR`、`FRONTEND_PORT` 环境变量覆盖默认配置。
+
+详见 [docs/architecture.md](docs/architecture.md)、[docs/billing-closed-loop.md](docs/billing-closed-loop.md) 与 [charging-deploy/README.md](charging-deploy/README.md)。
 
 ## 技术选型
 

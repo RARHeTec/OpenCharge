@@ -36,3 +36,6 @@ charging-deploy/.env
 
 # local run artifacts
 charging-iot-gateway/.run/
+
+# local dev runtime
+.dev/
