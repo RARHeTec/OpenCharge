@@ -2,7 +2,7 @@
 
 ## 项目定位
 开源免费、可商用的新能源充电桩管理平台（SaaS/PaaS），基于用户提供的《私有充电平台（SaaS_PaaS）系统架构与从零开发规划文档.docx》。
-目标组织：`RARHeTec`（GitHub 唯一可用组织），仓库名 `OpenCharge`，许可证建议 Apache-2.0（署名 + 可商用 + 开源）。
+目标组织：`RARHeTec`（GitHub 唯一可用组织），仓库名 `OpenCharge`，许可证 Apache-2.0（署名 + 可商用 + 开源）。已开源推送：https://github.com/RARHeTec/OpenCharge（PUBLIC，main 分支）。
 
 ## 技术栈（2026-11-24 用户提出，讨论中）
 - **后端 Go + 前端 Vue 3（uni-app C 端 + Vue3 管理后台）**。前端与文档原选型一致；后端由文档推荐的 Java 改为 Go。
