@@ -104,6 +104,28 @@ start_middleware() {
   echo "  middleware containers requested; use 'docker ps --filter name=oc-' to confirm which survived"
 }
 
+resolve_node() {
+  # On Apple Silicon the system node may run under Rosetta as x64 while npm
+  # installed the arm64 native rollup binding. Pick a node matching node_modules
+  # so vite does not die with "Cannot find module @rollup/rollup-darwin-*".
+  local host_arch
+  host_arch="$(uname -m)"
+  for candidate in /Users/joe/.workbuddy/binaries/node/versions/22.22.2/bin/node "$(command -v node)"; do
+    [ -n "$candidate" ] && [ -x "$candidate" ] || continue
+    local arch
+    arch="$("$candidate" -p 'process.arch' 2>/dev/null || true)"
+    case "$host_arch:$arch" in
+      arm64:arm64|x86_64:x64)
+        NODE_BIN="$candidate"
+        echo "  [ok] using node $candidate ($arch)"
+        return 0
+        ;;
+    esac
+  done
+  NODE_BIN="$(command -v node)"
+  echo "  [warn] no arch-matched node found; vite may fail to start"
+}
+
 start_all() {
   local with_middleware=0
   [ "${1:-}" = "--middleware" ] && with_middleware=1
@@ -131,10 +153,13 @@ start_all() {
   echo $! >"$PID_DIR/gateway.pid"
 
   echo "==> starting admin UI (:${FRONTEND_PORT})"
+  resolve_node
   (
     cd "$ROOT/charging-frontends/admin"
     ADMIN_API_KEY="$ADMIN_API_KEY" \
-    nohup npx vite --port "$FRONTEND_PORT" --strictPort \
+    local vite_js="$ROOT/charging-frontends/admin/node_modules/vite/bin/vite.js"
+    [ -f "$vite_js" ] || { echo "  [fail] vite not installed; run: cd charging-frontends/admin && npm install" >&2; exit 1; }
+    nohup "$NODE_BIN" "$vite_js" --port "$FRONTEND_PORT" --strictPort \
       >"$LOG_DIR/frontend.log" 2>&1 &
     echo $! >"$PID_DIR/frontend.pid"
   )
