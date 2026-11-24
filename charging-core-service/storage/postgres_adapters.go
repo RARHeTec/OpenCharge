@@ -132,3 +132,28 @@ var (
 	_ WalletStore = (*PGWalletStore)(nil)
 	_ AuditStore  = (*PGAuditStore)(nil)
 )
+
+// PGRegistryStore adapts PGStore to the RegistryStore port.
+type PGRegistryStore struct{ S *PGStore }
+
+func (w *PGRegistryStore) SaveStation(ctx context.Context, st Station) error {
+	return w.S.SaveStationRecord(ctx, st)
+}
+func (w *PGRegistryStore) GetStation(ctx context.Context, tenant, id string) (Station, bool, error) {
+	return w.S.GetStationRecord(ctx, tenant, id)
+}
+func (w *PGRegistryStore) ListStations(ctx context.Context, tenant string) ([]Station, error) {
+	return w.S.ListStationRecords(ctx, tenant)
+}
+func (w *PGRegistryStore) SaveDevice(ctx context.Context, d Device) error {
+	return w.S.SaveDeviceRecord(ctx, d)
+}
+func (w *PGRegistryStore) GetDevice(ctx context.Context, id string) (Device, bool, error) {
+	return w.S.GetDeviceRecord(ctx, id)
+}
+func (w *PGRegistryStore) ListDevices(ctx context.Context, tenant, station string) ([]Device, error) {
+	return w.S.ListDeviceRecords(ctx, tenant, station)
+}
+
+var _ RegistryStore = (*PGRegistryStore)(nil)
+var _ RegistryStore = (*MemoryRegistryStore)(nil)

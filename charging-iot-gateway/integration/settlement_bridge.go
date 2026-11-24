@@ -36,6 +36,21 @@ type BillConfig struct {
 	TariffAt TariffAtResolver
 	// Location interprets the device CP56 wall-clock time.
 	Location *time.Location
+	// Resolver looks up tenant/station/wallet for a device from master data.
+	// When nil (or the device is unknown) the fields above are used.
+	Resolver DeviceResolver
+}
+
+// DeviceResolver maps a device to its billing context from the registry.
+type DeviceResolver interface {
+	ResolveDevice(ctx context.Context, deviceID string) (DeviceBilling, bool)
+}
+
+// DeviceBilling is the per-device billing context.
+type DeviceBilling struct {
+	TenantID  string
+	StationID string
+	UserID    string
 }
 
 // TariffAtResolver returns the tariff version id effective at a moment.
@@ -60,9 +75,10 @@ func (b *SettlementBridge) OnEvent(e ykcserver.Event) {
 		slog.Warn("settlement: unexpected transaction payload", "traceId", e.TraceID)
 		return
 	}
-	bill := ToBill(e, txn, b.cfg)
+	cfg := b.cfgFor(txn.DeviceID)
+	bill := ToBill(e, txn, cfg)
 	ctx := context.Background()
-	if vid, ok := b.resolveTariff(ctx, txn); ok {
+	if vid, ok := b.resolveTariff(ctx, txn, cfg); ok {
 		bill.TariffVersionID = vid
 	}
 	res, err := b.settlement.Settle(ctx, bill)
@@ -81,19 +97,39 @@ func (b *SettlementBridge) OnEvent(e ykcserver.Event) {
 	)
 }
 
+// cfgFor returns the billing config for a device, preferring master data over
+// the static flags so one gateway process can serve many stations and tenants.
+func (b *SettlementBridge) cfgFor(deviceID string) BillConfig {
+	cfg := b.cfg
+	if cfg.Resolver == nil {
+		return cfg
+	}
+	db, ok := cfg.Resolver.ResolveDevice(context.Background(), deviceID)
+	if !ok {
+		slog.Warn("device not in registry, using default billing config", "device", deviceID)
+		return cfg
+	}
+	cfg.TenantID = db.TenantID
+	cfg.StationID = db.StationID
+	if db.UserID != "" {
+		cfg.UserID = db.UserID
+	}
+	return cfg
+}
+
 // resolveTariff picks the tariff version valid at the charge start time. It
 // falls back to the configured snapshot when no resolver or timestamp exists.
-func (b *SettlementBridge) resolveTariff(ctx context.Context, txn protocol.TransactionBody) (string, bool) {
-	if b.cfg.TariffAt == nil || len(txn.StartCP56) < 7 {
+func (b *SettlementBridge) resolveTariff(ctx context.Context, txn protocol.TransactionBody, cfg BillConfig) (string, bool) {
+	if cfg.TariffAt == nil || len(txn.StartCP56) < 7 {
 		return "", false
 	}
-	start, err := protocol.ParseCP56Time2a(txn.StartCP56, b.cfg.Location)
+	start, err := protocol.ParseCP56Time2a(txn.StartCP56, cfg.Location)
 	if err != nil {
 		slog.Warn("cannot parse charge start time, using configured tariff",
 			"err", err, "txn", txn.TransactionID)
 		return "", false
 	}
-	vid, err := b.cfg.TariffAt.ResolveTariffVersion(ctx, b.cfg.TenantID, b.cfg.StationID, start)
+	vid, err := cfg.TariffAt.ResolveTariffVersion(ctx, cfg.TenantID, cfg.StationID, start)
 	if err != nil || vid == "" {
 		return "", false
 	}

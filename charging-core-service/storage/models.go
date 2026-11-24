@@ -96,3 +96,24 @@ type ExceptionOrder struct {
 	CreatedAt      time.Time   `json:"createdAt"`
 	Resolved       bool        `json:"resolved"`
 }
+
+// Station is a physical charging site owned by one tenant.
+type Station struct {
+	ID        string    `json:"id"`
+	TenantID  string    `json:"tenantId"`
+	Name      string    `json:"name"`
+	Timezone  string    `json:"timezone"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// Device is one charging pile registered to a station. DefaultUserID is the
+// wallet owner for unattended bills until per-session authentication exists.
+type Device struct {
+	DeviceID      string    `json:"deviceId"`
+	TenantID      string    `json:"tenantId"`
+	StationID     string    `json:"stationId"`
+	Protocol      string    `json:"protocol"`
+	DefaultUserID string    `json:"defaultUserId"`
+	GunCount      int       `json:"gunCount"`
+	LastSeenAt    time.Time `json:"lastSeenAt"`
+}

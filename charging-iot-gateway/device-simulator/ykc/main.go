@@ -120,7 +120,7 @@ func bcd14(s string) []byte {
 	out := make([]byte, 7)
 	for i := 0; i < 7 && i*2+1 < len(s); i++ {
 		hi, lo := s[i*2]-'0', s[i*2+1]-'0'
-		out[i] = (lo << 4) | hi
+		out[i] = (hi << 4) | lo
 	}
 	return out
 }
@@ -129,7 +129,7 @@ func bcd16(s string) []byte {
 	out := make([]byte, 16)
 	for i := 0; i+1 < len(s) && i/2 < 16; i += 2 {
 		hi, lo := s[i]-'0', s[i+1]-'0'
-		out[i/2] = (lo << 4) | hi
+		out[i/2] = (hi << 4) | lo
 	}
 	return out
 }

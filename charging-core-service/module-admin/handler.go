@@ -22,6 +22,7 @@ type API struct {
 	tariffs  storage.TariffStore
 	resolver Resolver
 	keys     KeyRegistry
+	registry storage.RegistryStore
 }
 
 func NewAPI(store storage.AuditStore, orders storage.OrderStore, states ...state.Store) *API {
@@ -47,6 +48,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/admin/audits", a.handleAudits)
 	mux.HandleFunc("/api/admin/connectors", a.handleConnectors)
 	a.RegisterTariffRoutes(mux)
+	a.RegisterRegistryRoutes(mux)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -217,6 +219,12 @@ type resolveRequest struct {
 // Resolver is the settlement engine surface needed to close an exception.
 type Resolver interface {
 	ResolveException(ctx context.Context, req billing.ResolveRequest) (billing.ResolveResult, error)
+}
+
+// WithRegistry attaches the station/device master-data store.
+func (a *API) WithRegistry(r storage.RegistryStore) *API {
+	a.registry = r
+	return a
 }
 
 // WithKeys enables API key authentication and tenant scoping.

@@ -44,7 +44,9 @@ func main() {
 	tariffs := storage.NewMemoryTariffStore()
 	wallets := storage.NewMemoryWalletStore()
 	audits := storage.NewMemoryAuditStore()
+	registry := storage.NewMemoryRegistryStore()
 	seed(tariffs, wallets)
+	seedRegistry(registry, *tenantID, *stationID, *userID)
 
 	settlement := billing.NewSettlementService(orders, tariffs, wallets, audits)
 	eventBus := openBus(*kafkaBroker)
@@ -55,6 +57,7 @@ func main() {
 		TariffVersionID: *tariffID,
 		TariffAt:        tariffAtResolver{store: tariffs},
 		Location:        time.Local,
+		Resolver:        registryResolver{store: registry},
 	})
 	stateStore := openStateStore(*redisAddr)
 	_, telemetryBuffer := openTelemetryStore(*tdengine)
@@ -65,7 +68,8 @@ func main() {
 	// Admin HTTP API reads the same stores.
 	mux := http.NewServeMux()
 	api := adminapi.NewAPI(audits, orders, stateStore).
-		WithTariffs(tariffs).WithResolver(settlement).WithKeys(parseAdminKeys(*adminKeys))
+		WithTariffs(tariffs).WithResolver(settlement).WithRegistry(registry).
+		WithKeys(parseAdminKeys(*adminKeys))
 	if *adminKeys != "" {
 		slog.Info("admin API authentication enabled")
 	} else {
@@ -216,4 +220,38 @@ func parseAdminKeys(spec string) adminapi.KeyRegistry {
 		return nil
 	}
 	return adminapi.NewStaticKeys(pairs)
+}
+
+// registryResolver looks up a device's billing context from master data so the
+// gateway can serve multiple stations and tenants without per-process flags.
+type registryResolver struct {
+	store storage.RegistryStore
+}
+
+func (r registryResolver) ResolveDevice(ctx context.Context, deviceID string) (integration.DeviceBilling, bool) {
+	d, ok, err := r.store.GetDevice(ctx, deviceID)
+	if err != nil || !ok {
+		return integration.DeviceBilling{}, false
+	}
+	return integration.DeviceBilling{
+		TenantID: d.TenantID, StationID: d.StationID, UserID: d.DefaultUserID,
+	}, true
+}
+
+// seedRegistry registers the demo station and a device so the simulator's
+// default pile id resolves without manual setup.
+func seedRegistry(reg storage.RegistryStore, tenantID, stationID, userID string) {
+	ctx := context.Background()
+	_ = reg.SaveStation(ctx, storage.Station{
+		ID: stationID, TenantID: tenantID, Name: "演示场站", Timezone: "Asia/Shanghai",
+		CreatedAt: time.Now(),
+	})
+	for _, id := range []string{"55031412782305", "55031412782306", "55031412782307",
+		"55031412782310", "55031412782311", "55031412782312", "55304121873250"} {
+		_ = reg.SaveDevice(ctx, storage.Device{
+			DeviceID: id, TenantID: tenantID, StationID: stationID,
+			Protocol: "yunkuaichong-v1.6", DefaultUserID: userID, GunCount: 2,
+		})
+	}
+	slog.Info("seeded demo station and devices", "station", stationID, "tenant", tenantID)
 }

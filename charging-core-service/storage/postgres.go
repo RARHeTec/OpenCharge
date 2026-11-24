@@ -122,6 +122,7 @@ func (s *PGStore) AutoMigrate() error {
 	return s.db.AutoMigrate(
 		&orderRow{}, &segmentRow{}, &tariffRow{}, &walletRow{},
 		&appliedDebitRow{}, &auditRow{}, &exceptionRow{},
+		&stationRow{}, &deviceRow{},
 	)
 }
 
@@ -396,6 +397,110 @@ func (s *PGStore) ListTariffs(_ context.Context, tenantID, stationID string) ([]
 	out := make([]TariffVersion, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, rowToTariff(r))
+	}
+	return out, nil
+}
+
+// ---- registry (PG) ----
+
+type stationRow struct {
+	ID        string `gorm:"primaryKey"`
+	TenantID  string `gorm:"index"`
+	Name      string
+	Timezone  string
+	CreatedAt time.Time
+}
+
+func (stationRow) TableName() string { return "station" }
+
+type deviceRow struct {
+	DeviceID      string `gorm:"primaryKey;column:device_id"`
+	TenantID      string `gorm:"index"`
+	StationID     string `gorm:"index"`
+	Protocol      string
+	DefaultUserID string `gorm:"column:default_user_id"`
+	GunCount      int    `gorm:"column:gun_count"`
+	LastSeenAt    time.Time
+}
+
+func (deviceRow) TableName() string { return "device" }
+
+func (s *PGStore) SaveStationRecord(_ context.Context, st Station) error {
+	return s.db.Save(&stationRow{
+		ID: st.ID, TenantID: st.TenantID, Name: st.Name,
+		Timezone: st.Timezone, CreatedAt: st.CreatedAt,
+	}).Error
+}
+
+func (s *PGStore) GetStationRecord(_ context.Context, tenantID, stationID string) (Station, bool, error) {
+	var r stationRow
+	err := s.db.Where("id = ? AND tenant_id = ?", stationID, tenantID).First(&r).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return Station{}, false, nil
+	}
+	if err != nil {
+		return Station{}, false, err
+	}
+	return Station{ID: r.ID, TenantID: r.TenantID, Name: r.Name,
+		Timezone: r.Timezone, CreatedAt: r.CreatedAt}, true, nil
+}
+
+func (s *PGStore) ListStationRecords(_ context.Context, tenantID string) ([]Station, error) {
+	q := s.db.Model(&stationRow{}).Order("created_at DESC")
+	if tenantID != "" {
+		q = q.Where("tenant_id = ?", tenantID)
+	}
+	var rows []stationRow
+	if err := q.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]Station, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, Station{ID: r.ID, TenantID: r.TenantID, Name: r.Name,
+			Timezone: r.Timezone, CreatedAt: r.CreatedAt})
+	}
+	return out, nil
+}
+
+func (s *PGStore) SaveDeviceRecord(_ context.Context, d Device) error {
+	return s.db.Save(&deviceRow{
+		DeviceID: d.DeviceID, TenantID: d.TenantID, StationID: d.StationID,
+		Protocol: d.Protocol, DefaultUserID: d.DefaultUserID,
+		GunCount: d.GunCount, LastSeenAt: d.LastSeenAt,
+	}).Error
+}
+
+func (s *PGStore) GetDeviceRecord(_ context.Context, deviceID string) (Device, bool, error) {
+	var r deviceRow
+	err := s.db.Where("device_id = ?", deviceID).First(&r).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return Device{}, false, nil
+	}
+	if err != nil {
+		return Device{}, false, err
+	}
+	return Device{DeviceID: r.DeviceID, TenantID: r.TenantID, StationID: r.StationID,
+		Protocol: r.Protocol, DefaultUserID: r.DefaultUserID,
+		GunCount: r.GunCount, LastSeenAt: r.LastSeenAt}, true, nil
+}
+
+func (s *PGStore) ListDeviceRecords(_ context.Context, tenantID, stationID string) ([]Device, error) {
+	q := s.db.Model(&deviceRow{}).Order("device_id")
+	if tenantID != "" {
+		q = q.Where("tenant_id = ?", tenantID)
+	}
+	if stationID != "" {
+		q = q.Where("station_id = ?", stationID)
+	}
+	var rows []deviceRow
+	if err := q.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]Device, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, Device{DeviceID: r.DeviceID, TenantID: r.TenantID,
+			StationID: r.StationID, Protocol: r.Protocol, DefaultUserID: r.DefaultUserID,
+			GunCount: r.GunCount, LastSeenAt: r.LastSeenAt})
 	}
 	return out, nil
 }

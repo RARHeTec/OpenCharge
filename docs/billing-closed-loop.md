@@ -158,3 +158,28 @@ curl http://localhost:8081/api/admin/exceptions
 **验证**：7 个单测覆盖无 key/错 key/正确 key/跨租户读/跨租户写/租户取自凭证/healthz 开放。实测 401/401/200/403/200 全部符合预期。
 
 > 注意：`-admin-key` 留空等于关闭鉴权，仅限本地开发；生产必须配置。
+
+---
+
+## 场站/设备台账（2026-11-25 追加）
+
+**此前的问题**：租户、场站、钱包用户全靠网关启动参数写死（`-tenant T1 -station S1 -user U1`），一个网关进程只能服务一个场站，且无法登记新桩。
+
+**台账模型**（`storage.RegistryStore`）：
+- `Station`：id、tenantId、name、timezone
+- `Device`：deviceId、tenantId、stationId、protocol、defaultUserId、gunCount
+
+**API**：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET/POST | `/api/admin/stations` | 场站列表/新建 |
+| GET/POST | `/api/admin/devices` | 设备列表（可按 stationId 过滤）/登记 |
+
+**关键约束**：设备只能挂到**同租户的场站**下，否则 400；租户一律取自 API Key 凭证，跨租户返回 403。
+
+**网关按设备计费**：账单到达时用 `deviceId` 查台账得到 tenant/station/user，替代硬编码；查不到才回退默认值（并打 WARN，不会丢单）。
+
+**同时修了一个真 bug**：模拟器 BCD 打包写的是 `(lo<<4)|hi`，而解码端按 `hi` 在前读取，导致"输入 55031412782399、平台收到 55304121873299"——用户登记的设备号和实际上报的对不上，台账永远匹配失败。已修正为 `(hi<<4)|lo`。
+
+**实测**：新建场站 S2 → 登记设备 55031412782399 到 S2 → 发布 S2 电价 → 模拟器上报后账单归属 S2、使用 `T1-S2-...` 电价版本并正常结算 0.3000。

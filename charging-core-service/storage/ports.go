@@ -41,3 +41,15 @@ type AuditStore interface {
 	// Returns the number of rows updated (0 = no matching unresolved exception).
 	ResolveExceptionByTransaction(ctx context.Context, transactionID, operator string) (int, error)
 }
+
+// RegistryStore holds the station/device master data that everything else
+// hangs off: billing needs the tenant and station a device belongs to.
+type RegistryStore interface {
+	SaveStation(ctx context.Context, s Station) error
+	GetStation(ctx context.Context, tenantID, stationID string) (Station, bool, error)
+	ListStations(ctx context.Context, tenantID string) ([]Station, error)
+
+	SaveDevice(ctx context.Context, d Device) error
+	GetDevice(ctx context.Context, deviceID string) (Device, bool, error)
+	ListDevices(ctx context.Context, tenantID, stationID string) ([]Device, error)
+}

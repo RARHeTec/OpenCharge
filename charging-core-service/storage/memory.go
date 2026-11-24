@@ -239,3 +239,77 @@ func (s *MemoryAuditStore) Exceptions() []ExceptionOrder {
 	s.mu.Lock(); defer s.mu.Unlock()
 	return append([]ExceptionOrder(nil), s.exceptions...)
 }
+
+// MemoryRegistryStore is the in-process registry for tests and local runs.
+type MemoryRegistryStore struct {
+	mu       sync.RWMutex
+	stations map[string]Station // tenantID + "/" + stationID
+	devices  map[string]Device
+}
+
+func NewMemoryRegistryStore() *MemoryRegistryStore {
+	return &MemoryRegistryStore{
+		stations: make(map[string]Station),
+		devices:  make(map[string]Device),
+	}
+}
+
+func stationKey(tenantID, stationID string) string { return tenantID + "/" + stationID }
+
+func (s *MemoryRegistryStore) SaveStation(_ context.Context, st Station) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stations[stationKey(st.TenantID, st.ID)] = st
+	return nil
+}
+
+func (s *MemoryRegistryStore) GetStation(_ context.Context, tenantID, stationID string) (Station, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	st, ok := s.stations[stationKey(tenantID, stationID)]
+	return st, ok, nil
+}
+
+func (s *MemoryRegistryStore) ListStations(_ context.Context, tenantID string) ([]Station, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]Station, 0, len(s.stations))
+	for _, st := range s.stations {
+		if tenantID == "" || st.TenantID == tenantID {
+			out = append(out, st)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	return out, nil
+}
+
+func (s *MemoryRegistryStore) SaveDevice(_ context.Context, d Device) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.devices[d.DeviceID] = d
+	return nil
+}
+
+func (s *MemoryRegistryStore) GetDevice(_ context.Context, deviceID string) (Device, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	d, ok := s.devices[deviceID]
+	return d, ok, nil
+}
+
+func (s *MemoryRegistryStore) ListDevices(_ context.Context, tenantID, stationID string) ([]Device, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]Device, 0, len(s.devices))
+	for _, d := range s.devices {
+		if tenantID != "" && d.TenantID != tenantID {
+			continue
+		}
+		if stationID != "" && d.StationID != stationID {
+			continue
+		}
+		out = append(out, d)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].DeviceID < out[j].DeviceID })
+	return out, nil
+}

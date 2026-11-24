@@ -5,6 +5,7 @@ import Orders from './views/Orders.vue'
 import Exceptions from './views/Exceptions.vue'
 import Audits from './views/Audits.vue'
 import Tariffs from './views/Tariffs.vue'
+import Stations from './views/Stations.vue'
 
 const config = ref(null)
 const tab = ref('orders')
@@ -26,12 +27,14 @@ onMounted(async () => {
       <button :class="{active: tab === 'exceptions'}" @click="tab = 'exceptions'">异常单</button>
       <button :class="{active: tab === 'audits'}" @click="tab = 'audits'">容差审计</button>
       <button :class="{active: tab === 'tariffs'}" @click="tab = 'tariffs'">电价版本</button>
+      <button :class="{active: tab === 'stations'}" @click="tab = 'stations'">场站设备</button>
     </nav>
     <main>
       <Orders v-if="tab === 'orders'" :api-base="apiBase" />
       <Exceptions v-else-if="tab === 'exceptions'" :api-base="apiBase" />
       <Audits v-else-if="tab === 'audits'" :api-base="apiBase" />
-      <Tariffs v-else :api-base="apiBase" />
+      <Tariffs v-else-if="tab === 'tariffs'" :api-base="apiBase" />
+      <Stations v-else :api-base="apiBase" />
     </main>
   </div>
 </template>
