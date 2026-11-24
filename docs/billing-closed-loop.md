@@ -17,6 +17,7 @@
 设 `P` = 平台按电价快照重算金额、`D` = 桩端消费金额（scale=4，1 单位 = 0.0001 元）。
 
 **硬排除（直接挂异常单，绝不扣款）**：
+
 - 桩端四段金额之和 ≠ 消费金额
 - 电量为负或分段电量与总电量偏差 >1 单位
 - 金额超过自动结算上限（默认 500 元）
@@ -64,20 +65,42 @@ curl http://localhost:8081/api/admin/exceptions
 
 三种中间件都采用**端口 + 双实现**，默认内存路径保持已验证的闭环不变：
 
-| 能力 | 端口 | 默认实现 | 生产实现 | 启用参数 |
-|---|---|---|---|---|
-| 实时枪态 | `common/state.Store` | `MemoryStore` | `RedisStore`（TTL 5 分钟自动过期） | `-redis host:port` |
-| 遥测落库 | `telemetry.Store` | `MemoryStore` | `TDengineStore`（REST `/api/v2/sql`，批量写） | `-tdengine http://host:6041` |
-| 事件分流 | `bus.Bus` | `MemoryBus` | `KafkaBus`（原生 Produce v3 协议，零第三方依赖） | `-kafka host:port` |
+| 能力   | 端口                   | 默认实现          | 生产实现                                    | 启用参数                         |
+| ---- | -------------------- | ------------- | --------------------------------------- | ---------------------------- |
+| 实时枪态 | `common/state.Store` | `MemoryStore` | `RedisStore`（TTL 5 分钟自动过期）              | `-redis host:port`           |
+| 遥测落库 | `telemetry.Store`    | `MemoryStore` | `TDengineStore`（REST `/api/v2/sql`，批量写） | `-tdengine http://host:6041` |
+| 事件分流 | `bus.Bus`            | `MemoryBus`   | `KafkaBus`（原生 Produce v3 协议，零第三方依赖）     | `-kafka host:port`           |
 
 **关键设计**：
+
 - Kafka 通道按 `channels.TopicTelemetry` / `TopicState` 物理隔离，状态主题用 `{deviceId}:{gunNo}` 作分区键保证同枪有序；原生协议实现带 CRC32C 与 trace 头。
 - 遥测经 `Buffer` 按数量（50 条）或时间（3 秒）批量刷写；Push 非阻塞，不拖慢桩端读取与结算。
 - 枪态更新与结算通过 `CompositeHandler` 串联，状态先更新、结算后执行；停机时保留最后一次电量/金额供后台查看。
 - admin 新增 `/api/admin/connectors` 查询实时枪态。
 
 **验证情况**：
+
 - 默认路径：四模块 build/test/vet 全绿；真实 TCP 模拟器 → 结算 settled → admin 订单与枪态可见（回归通过）。
 - Redis：用 Docker 容器实测，枪态写入并可通过 admin API 查询。
 - TDengine：容器在本沙箱因内存限制无法启动，改用 HTTP mock 验证建库/建表/批量 INSERT 的 SQL 与数值正确。
 - Kafka：容器同样受内存限制，改用协议级单测验证 Produce 请求结构、分区键、trace 头、变长编码与 CRC32C 已知向量（发现并修复了大端序与 CRC 偏移两个真实 bug）。
+
+---
+
+## 电价版本管理（2026-11-25 追加）
+
+**不可变快照原则**：电价版本一经发布不可修改，变更即新建版本；历史订单的 `tariffVersionId` 始终指向当时的价格快照，重算/回溯不会受后续改价影响。
+
+**API**（`module-admin/tariff_handler.go`）：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/admin/tariffs?tenantId=&stationId=` | 版本列表，按生效时间倒序 |
+| GET | `/api/admin/tariffs/{id}` | 版本详情 |
+| POST | `/api/admin/tariffs` | 新建版本；ID 由 `tenant-station-生效unix秒` 生成，同输入幂等 |
+
+**校验**（`storage.ValidateTariff`）：必须恰好 48 个时段、slot 在 0..47、无重复、价格非负。价格用字符串传输（如 `"0.62345"`），避免 JSON 浮点丢精度。
+
+**前端**（`charging-frontends/admin/src/views/Tariffs.vue`）：48 时段网格编辑器、尖峰平谷批量填充、5 位小数格式校验、历史版本一键载入再发布。
+
+**验证**：API 单测覆盖创建/列表/详情/47 时段拒绝/重复 slot 拒绝/非法价格拒绝；前端 `vite build` 通过；实测通过 API 发布 0.90000 版本后，同一笔账单平台重算为 0.4500、与桩端 0.3000 差额超容差，正确挂起为异常单——证明新版本确实驱动了结算。

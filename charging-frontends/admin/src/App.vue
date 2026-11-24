@@ -4,6 +4,7 @@ import { loadTenantConfig } from '@opencharge/shared'
 import Orders from './views/Orders.vue'
 import Exceptions from './views/Exceptions.vue'
 import Audits from './views/Audits.vue'
+import Tariffs from './views/Tariffs.vue'
 
 const config = ref(null)
 const tab = ref('orders')
@@ -24,11 +25,13 @@ onMounted(async () => {
       <button :class="{active: tab === 'orders'}" @click="tab = 'orders'">订单</button>
       <button :class="{active: tab === 'exceptions'}" @click="tab = 'exceptions'">异常单</button>
       <button :class="{active: tab === 'audits'}" @click="tab = 'audits'">容差审计</button>
+      <button :class="{active: tab === 'tariffs'}" @click="tab = 'tariffs'">电价版本</button>
     </nav>
     <main>
       <Orders v-if="tab === 'orders'" :api-base="apiBase" />
       <Exceptions v-else-if="tab === 'exceptions'" :api-base="apiBase" />
-      <Audits v-else :api-base="apiBase" />
+      <Audits v-else-if="tab === 'audits'" :api-base="apiBase" />
+      <Tariffs v-else :api-base="apiBase" />
     </main>
   </div>
 </template>

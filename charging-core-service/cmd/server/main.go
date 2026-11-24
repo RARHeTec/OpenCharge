@@ -25,7 +25,7 @@ func main() {
 	dsn := flag.String("dsn", "", "PostgreSQL DSN; empty = in-memory demo mode")
 	flag.Parse()
 
-	orders, _, _, audits := openStores(*dsn)
+	orders, tariffs, _, audits := openStores(*dsn)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +35,7 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	admin.NewAPI(audits, orders).Register(mux)
+	admin.NewAPI(audits, orders).WithTariffs(tariffs).Register(mux)
 	slog.Info("admin API mounted", "dsn", maskDSN(*dsn))
 
 	srv := &http.Server{Addr: *addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}

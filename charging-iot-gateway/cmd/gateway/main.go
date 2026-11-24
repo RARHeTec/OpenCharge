@@ -59,7 +59,7 @@ func main() {
 
 	// Admin HTTP API reads the same stores.
 	mux := http.NewServeMux()
-	adminapi.NewAPI(audits, orders, stateStore).Register(mux)
+	adminapi.NewAPI(audits, orders, stateStore).WithTariffs(tariffs).Register(mux)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -91,14 +91,24 @@ func main() {
 
 func seed(tariffs storage.TariffStore, wallets storage.WalletStore) {
 	ctx := context.Background()
+	// Demo snapshot fills all 48 half-hour slots so it satisfies the same
+	// validation rule enforced by the admin API and never fails repricing.
+	// Valley 0.30 for slots 0-15, flat 0.60 for 16-23, peak 0.60 for 24-47.
+	slots := make([]storage.TariffSlot, 48)
+	for i := range slots {
+		price := "0.60000"
+		switch {
+		case i < 16:
+			price = "0.30000"
+		case i < 24:
+			price = "0.60000"
+		default:
+			price = "0.60000"
+		}
+		slots[i] = storage.TariffSlot{Slot: i, Price: money.MustParsePrice(price)}
+	}
 	_ = tariffs.Save(ctx, storage.TariffVersion{
-		ID: "V1", TenantID: "T1", StationID: "S1", Effective: time.Now(),
-		Slots: []storage.TariffSlot{
-			{Slot: 0, Price: money.MustParsePrice("0.30000")}, // valley
-			{Slot: 1, Price: money.MustParsePrice("0.60000")}, // peak
-			{Slot: 2, Price: money.MustParsePrice("0.60000")}, // sharp (demo)
-			{Slot: 3, Price: money.MustParsePrice("0.60000")}, // flat (demo)
-		},
+		ID: "V1", TenantID: "T1", StationID: "S1", Effective: time.Now(), Slots: slots,
 	})
 	_ = wallets.Save(ctx, storage.Wallet{
 		UserID: "U1", TenantID: "T1", Principal: money.MustParseYuan("10"),

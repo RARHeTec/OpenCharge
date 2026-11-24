@@ -362,3 +362,19 @@ func rowToTariff(r tariffRow) TariffVersion {
 	}
 	return v
 }
+
+func (s *PGStore) ListTariffs(_ context.Context, tenantID, stationID string) ([]TariffVersion, error) {
+	q := s.db.Model(&tariffRow{}).Where("tenant_id = ?", tenantID).Order("effective DESC")
+	if stationID != "" {
+		q = q.Where("station_id = ?", stationID)
+	}
+	var rows []tariffRow
+	if err := q.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]TariffVersion, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, rowToTariff(r))
+	}
+	return out, nil
+}

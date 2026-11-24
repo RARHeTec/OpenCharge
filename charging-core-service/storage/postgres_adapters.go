@@ -38,6 +38,9 @@ func (w *PGTariffStore) Latest(ctx context.Context, tenant, station string, at i
 func (w *PGTariffStore) Save(ctx context.Context, v TariffVersion) error {
 	return w.S.SaveTariff(ctx, v)
 }
+func (w *PGTariffStore) List(ctx context.Context, tenantID, stationID string) ([]TariffVersion, error) {
+	return w.S.ListTariffs(ctx, tenantID, stationID)
+}
 
 type PGWalletStore struct{ S *PGStore }
 

@@ -95,6 +95,19 @@ func (s *MemoryTariffStore) Latest(_ context.Context, tenantID, stationID string
 	}
 	return best, found, nil
 }
+func (s *MemoryTariffStore) List(_ context.Context, tenantID, stationID string) ([]TariffVersion, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]TariffVersion, 0, len(s.data))
+	for _, v := range s.data {
+		if v.TenantID == tenantID && (stationID == "" || v.StationID == stationID) {
+			out = append(out, v)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Effective.After(out[j].Effective) })
+	return out, nil
+}
+
 func (s *MemoryTariffStore) Save(_ context.Context, v TariffVersion) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

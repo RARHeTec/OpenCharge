@@ -19,6 +19,8 @@ type TariffStore interface {
 	Get(ctx context.Context, versionID string) (TariffVersion, bool, error)
 	// Latest returns the active snapshot for a station at a point in time.
 	Latest(ctx context.Context, tenantID, stationID string, at int64) (TariffVersion, bool, error)
+	// List returns all versions for a tenant/station, newest effective first.
+	List(ctx context.Context, tenantID, stationID string) ([]TariffVersion, error)
 	Save(ctx context.Context, v TariffVersion) error
 }
 

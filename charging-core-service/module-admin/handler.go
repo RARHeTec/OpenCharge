@@ -13,9 +13,10 @@ import (
 )
 
 type API struct {
-	store  storage.AuditStore
-	orders storage.OrderStore
-	states state.Store
+	store   storage.AuditStore
+	orders  storage.OrderStore
+	states  state.Store
+	tariffs storage.TariffStore
 }
 
 func NewAPI(store storage.AuditStore, orders storage.OrderStore, states ...state.Store) *API {
@@ -26,6 +27,12 @@ func NewAPI(store storage.AuditStore, orders storage.OrderStore, states ...state
 	return &API{store: store, orders: orders, states: st}
 }
 
+// WithTariffs attaches a tariff store so tariff management routes are mounted.
+func (a *API) WithTariffs(t storage.TariffStore) *API {
+	a.tariffs = t
+	return a
+}
+
 // Register mounts admin routes on the given mux under /api/admin.
 func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/admin/orders", a.handleOrders)
@@ -33,6 +40,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/admin/exceptions/resolve", a.handleResolve)
 	mux.HandleFunc("/api/admin/audits", a.handleAudits)
 	mux.HandleFunc("/api/admin/connectors", a.handleConnectors)
+	a.RegisterTariffRoutes(mux)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
