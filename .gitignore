@@ -29,3 +29,7 @@ charging-deploy/.env
 
 # local test binaries
 .testbin/
+
+# built binaries
+/charging-iot-gateway/gateway
+/charging-iot-gateway/sim

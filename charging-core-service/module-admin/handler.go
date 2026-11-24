@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/RARHeTec/OpenCharge/charging-common/state"
 	"github.com/RARHeTec/OpenCharge/charging-common/trace"
 	"github.com/RARHeTec/OpenCharge/charging-core-service/storage"
 )
@@ -14,10 +15,15 @@ import (
 type API struct {
 	store  storage.AuditStore
 	orders storage.OrderStore
+	states state.Store
 }
 
-func NewAPI(store storage.AuditStore, orders storage.OrderStore) *API {
-	return &API{store: store, orders: orders}
+func NewAPI(store storage.AuditStore, orders storage.OrderStore, states ...state.Store) *API {
+	var st state.Store
+	if len(states) > 0 {
+		st = states[0]
+	}
+	return &API{store: store, orders: orders, states: st}
 }
 
 // Register mounts admin routes on the given mux under /api/admin.
@@ -26,6 +32,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/admin/exceptions", a.handleExceptions)
 	mux.HandleFunc("/api/admin/exceptions/resolve", a.handleResolve)
 	mux.HandleFunc("/api/admin/audits", a.handleAudits)
+	mux.HandleFunc("/api/admin/connectors", a.handleConnectors)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -93,6 +100,23 @@ func (a *API) handleAudits(w http.ResponseWriter, r *http.Request) {
 	rows := []storage.AuditRecord{}
 	if l, ok := a.store.(auditLister); ok {
 		rows = l.Audits()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": rows})
+}
+
+func (a *API) handleConnectors(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if a.states == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"data": []any{}})
+		return
+	}
+	rows, err := a.states.List(r.Context(), r.URL.Query().Get("deviceId"))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": rows})
 }

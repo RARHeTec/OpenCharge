@@ -16,7 +16,7 @@ import (
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8768", "gateway TCP address")
-	device := flag.String("device", "55031412782305", "device id (14 BCD digits)")
+	device := flag.String("device", "55031412782301", "device id (14 BCD digits)")
 	gun := flag.Int("gun", 1, "gun number")
 	flag.Parse()
 

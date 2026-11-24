@@ -57,3 +57,27 @@ curl http://localhost:8081/api/admin/exceptions
 - TDengine 遥测曲线落库
 - Kafka 快慢通道解耦（当前进程内分流）
 - 电价版本管理后台页（当前通过存储接口写入）
+
+---
+
+## 阶段 3+4：中间件可切换实现（2026-11-25 追加）
+
+三种中间件都采用**端口 + 双实现**，默认内存路径保持已验证的闭环不变：
+
+| 能力 | 端口 | 默认实现 | 生产实现 | 启用参数 |
+|---|---|---|---|---|
+| 实时枪态 | `common/state.Store` | `MemoryStore` | `RedisStore`（TTL 5 分钟自动过期） | `-redis host:port` |
+| 遥测落库 | `telemetry.Store` | `MemoryStore` | `TDengineStore`（REST `/api/v2/sql`，批量写） | `-tdengine http://host:6041` |
+| 事件分流 | `bus.Bus` | `MemoryBus` | `KafkaBus`（原生 Produce v3 协议，零第三方依赖） | `-kafka host:port` |
+
+**关键设计**：
+- Kafka 通道按 `channels.TopicTelemetry` / `TopicState` 物理隔离，状态主题用 `{deviceId}:{gunNo}` 作分区键保证同枪有序；原生协议实现带 CRC32C 与 trace 头。
+- 遥测经 `Buffer` 按数量（50 条）或时间（3 秒）批量刷写；Push 非阻塞，不拖慢桩端读取与结算。
+- 枪态更新与结算通过 `CompositeHandler` 串联，状态先更新、结算后执行；停机时保留最后一次电量/金额供后台查看。
+- admin 新增 `/api/admin/connectors` 查询实时枪态。
+
+**验证情况**：
+- 默认路径：四模块 build/test/vet 全绿；真实 TCP 模拟器 → 结算 settled → admin 订单与枪态可见（回归通过）。
+- Redis：用 Docker 容器实测，枪态写入并可通过 admin API 查询。
+- TDengine：容器在本沙箱因内存限制无法启动，改用 HTTP mock 验证建库/建表/批量 INSERT 的 SQL 与数值正确。
+- Kafka：容器同样受内存限制，改用协议级单测验证 Produce 请求结构、分区键、trace 头、变长编码与 CRC32C 已知向量（发现并修复了大端序与 CRC 偏移两个真实 bug）。
