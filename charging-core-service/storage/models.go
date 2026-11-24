@@ -21,22 +21,22 @@ const (
 // Order is the persisted charging order. TariffVersionID is intentionally
 // denormalized so historical bills can be repriced with the exact rate used.
 type Order struct {
-	ID              string
-	TenantID        string
-	TransactionID   string // UNIQUE - the idempotency key
-	DeviceID        string
-	GunNo           int
-	StationID       string
-	State           OrderState
-	TariffVersionID string
-	EnergyUnits     int64      // kWh, scale=4
-	PileAmount      money.Money
-	PlatformAmount  money.Money
-	ChargeAmount    money.Money // actual amount charged to the wallet
-	Offline         bool
-	CreatedAt       time.Time
-	SettledAt       *time.Time
-	ExceptionReason string
+	ID              string      `json:"id"`
+	TenantID        string      `json:"tenantId"`
+	TransactionID   string      `json:"transactionId"` // UNIQUE - the idempotency key
+	DeviceID        string      `json:"deviceId"`
+	GunNo           int         `json:"gunNo"`
+	StationID       string      `json:"stationId"`
+	State           OrderState  `json:"state"`
+	TariffVersionID string      `json:"tariffVersionId"`
+	EnergyUnits     int64       `json:"energyUnits"` // kWh, scale=4
+	PileAmount      money.Money `json:"pileAmount"`
+	PlatformAmount  money.Money `json:"platformAmount"`
+	ChargeAmount    money.Money `json:"chargeAmount"` // actual amount charged to the wallet
+	Offline         bool        `json:"offline"`
+	CreatedAt       time.Time   `json:"createdAt"`
+	SettledAt       *time.Time  `json:"settledAt"`
+	ExceptionReason string      `json:"exceptionReason"`
 }
 
 // OrderSegment is one time-of-use band inside a bill.
@@ -72,26 +72,26 @@ type Wallet struct {
 
 // AuditRecord is written every time the tolerance rule auto-settles a bill.
 type AuditRecord struct {
-	ID             string
-	TransactionID  string
-	Rule           string
-	PileAmount     money.Money
-	PlatformAmount money.Money
-	Diff           money.Money
-	ChargeAmount   money.Money
-	TraceID        string
-	CreatedAt      time.Time
+	ID             string      `json:"id"`
+	TransactionID  string      `json:"transactionId"`
+	Rule           string      `json:"rule"`
+	PileAmount     money.Money `json:"pileAmount"`
+	PlatformAmount money.Money `json:"platformAmount"`
+	Diff           money.Money `json:"diff"`
+	ChargeAmount   money.Money `json:"chargeAmount"`
+	TraceID        string      `json:"traceId"`
+	CreatedAt      time.Time   `json:"createdAt"`
 }
 
 // ExceptionOrder is a bill that failed hard exclusion or exceeded tolerance.
 type ExceptionOrder struct {
-	ID             string
-	TransactionID  string
-	ReasonCode     string
-	PileAmount     money.Money
-	PlatformAmount money.Money
-	Diff           money.Money
-	TraceID        string
-	CreatedAt      time.Time
-	Resolved       bool
+	ID             string      `json:"id"`
+	TransactionID  string      `json:"transactionId"`
+	ReasonCode     string      `json:"reasonCode"`
+	PileAmount     money.Money `json:"pileAmount"`
+	PlatformAmount money.Money `json:"platformAmount"`
+	Diff           money.Money `json:"diff"`
+	TraceID        string      `json:"traceId"`
+	CreatedAt      time.Time   `json:"createdAt"`
+	Resolved       bool        `json:"resolved"`
 }

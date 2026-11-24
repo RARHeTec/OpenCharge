@@ -33,3 +33,6 @@ charging-deploy/.env
 # built binaries
 /charging-iot-gateway/gateway
 /charging-iot-gateway/sim
+
+# local run artifacts
+charging-iot-gateway/.run/

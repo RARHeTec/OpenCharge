@@ -71,7 +71,9 @@ func main() {
 
 	// 3. realtime telemetry: charging at 7.2 kW, 100.0 V x 72.0 A
 	rt := make([]byte, 69)
-	txn := bcd16("0000000000000001")
+	// Transaction id must be unique per session; reuse only makes sense for
+	// retry tests, so derive it from the current time to avoid dedup on repeat runs.
+	txn := bcd16(fmt.Sprintf("%016d", time.Now().UnixNano()%1e16))
 	copy(rt[:16], txn)
 	copy(rt[16:23], deviceBCD)
 	rt[23] = byte(*gun)

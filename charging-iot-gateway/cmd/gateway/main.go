@@ -93,17 +93,14 @@ func seed(tariffs storage.TariffStore, wallets storage.WalletStore) {
 	ctx := context.Background()
 	// Demo snapshot fills all 48 half-hour slots so it satisfies the same
 	// validation rule enforced by the admin API and never fails repricing.
-	// Valley 0.30 for slots 0-15, flat 0.60 for 16-23, peak 0.60 for 24-47.
+	// Deep-night valley 0.30 for slots 0-1 (00:00-01:00), 0.60 for the rest.
+	// This matches the simulator's default 0.60000 bill so the demo settles
+	// exactly; edit prices in the admin UI to exercise the exception path.
 	slots := make([]storage.TariffSlot, 48)
 	for i := range slots {
 		price := "0.60000"
-		switch {
-		case i < 16:
+		if i < 2 {
 			price = "0.30000"
-		case i < 24:
-			price = "0.60000"
-		default:
-			price = "0.60000"
 		}
 		slots[i] = storage.TariffSlot{Slot: i, Price: money.MustParsePrice(price)}
 	}
