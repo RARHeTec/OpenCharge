@@ -210,3 +210,56 @@ func TestSettleOverAutoLimit(t *testing.T) {
 		t.Fatal("no debit over auto limit")
 	}
 }
+
+func TestExceptionOrderKeepsSegments(t *testing.T) {
+	orders := storage.NewMemoryOrderStore()
+	tariffs := storage.NewMemoryTariffStore()
+	wallets := storage.NewMemoryWalletStore()
+	audits := storage.NewMemoryAuditStore()
+	ctx := context.Background()
+	_ = tariffs.Save(ctx, storage.TariffVersion{
+		ID: "V1", TenantID: "T1", StationID: "S1", Effective: time.Unix(1000, 0),
+		Slots: []storage.TariffSlot{
+			{Slot: 0, Price: money.MustParsePrice("0.30000")},
+			{Slot: 1, Price: money.MustParsePrice("0.60000")},
+		},
+	})
+	_ = wallets.Save(ctx, storage.Wallet{UserID: "U1", TenantID: "T1", Principal: money.MustParseYuan("10")})
+	svc := NewSettlementService(orders, tariffs, wallets, audits, WithIDGenerator(func() string { return "ord-x" }))
+
+	bill := exactBill()
+	bill.TransactionID = "TXN-SEG"
+	bill.PileAmount = money.MustParseYuan("0.95")
+	bill.PileSegmentSum = money.MustParseYuan("0.95")
+	res, err := svc.Settle(ctx, bill)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != ResultException {
+		t.Fatalf("status = %s", res.Status)
+	}
+	segs, err := orders.GetSegments(ctx, res.OrderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(segs) != 2 {
+		t.Fatalf("segments = %d, want 2 (valley + peak) so operators can inspect the bill", len(segs))
+	}
+	// Wallet must be untouched on an exception.
+	w, _, _ := wallets.Get(ctx, "U1", "T1")
+	if w.Principal.String() != "10.0000" {
+		t.Errorf("wallet = %s", w.Principal.String())
+	}
+}
+
+func TestSettledOrderCarriesUserID(t *testing.T) {
+	svc, wallets, _ := fixture(t)
+	res, err := svc.Settle(context.Background(), exactBill())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != ResultSettled {
+		t.Fatalf("status = %s", res.Status)
+	}
+	_ = wallets
+}

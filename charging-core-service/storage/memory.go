@@ -50,6 +50,12 @@ func (s *MemoryOrderStore) SaveSegments(_ context.Context, orderID string, segs 
 	return nil
 }
 
+func (s *MemoryOrderStore) GetSegments(_ context.Context, orderID string) ([]OrderSegment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]OrderSegment(nil), s.segs[orderID]...), nil
+}
+
 func (s *MemoryOrderStore) List(_ context.Context, tenantID string, limit int) ([]Order, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -189,6 +195,19 @@ func (s *MemoryAuditStore) ResolveException(_ context.Context, id, operator stri
 	}
 	return ErrNotFound
 }
+func (s *MemoryAuditStore) ResolveExceptionByTransaction(_ context.Context, txnID, _ string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for i := range s.exceptions {
+		if s.exceptions[i].TransactionID == txnID && !s.exceptions[i].Resolved {
+			s.exceptions[i].Resolved = true
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (s *MemoryAuditStore) Audits() []AuditRecord {
 	s.mu.Lock(); defer s.mu.Unlock()
 	return append([]AuditRecord(nil), s.audits...)

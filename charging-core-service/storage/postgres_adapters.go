@@ -23,6 +23,9 @@ func (w *PGOrderStore) Save(ctx context.Context, o Order) error { return w.S.Sav
 func (w *PGOrderStore) SaveSegments(ctx context.Context, id string, segs []OrderSegment) error {
 	return w.S.SaveOrderSegments(ctx, id, segs)
 }
+func (w *PGOrderStore) GetSegments(ctx context.Context, orderID string) ([]OrderSegment, error) {
+	return w.S.GetOrderSegments(ctx, orderID)
+}
 func (w *PGOrderStore) List(ctx context.Context, tenant string, limit int) ([]Order, error) {
 	return w.S.ListOrders(ctx, tenant, limit)
 }
@@ -68,6 +71,13 @@ func (w *PGAuditStore) ListExceptions(ctx context.Context, tenantID string, limi
 func (w *PGAuditStore) ResolveException(ctx context.Context, id, operator string) error {
 	return w.S.db.Model(&exceptionRow{}).Where("id = ?", id).
 		Updates(map[string]any{"resolved": true, "resolved_by": operator}).Error
+}
+
+func (w *PGAuditStore) ResolveExceptionByTransaction(_ context.Context, txnID, operator string) (int, error) {
+	res := w.S.db.Model(&exceptionRow{}).
+		Where("transaction_id = ? AND resolved = ?", txnID, false).
+		Updates(map[string]any{"resolved": true, "resolved_by": operator})
+	return int(res.RowsAffected), res.Error
 }
 
 // Minimal JSON helpers for the tariff slots column (avoids encoding/json

@@ -59,7 +59,7 @@ func main() {
 
 	// Admin HTTP API reads the same stores.
 	mux := http.NewServeMux()
-	adminapi.NewAPI(audits, orders, stateStore).WithTariffs(tariffs).Register(mux)
+	adminapi.NewAPI(audits, orders, stateStore).WithTariffs(tariffs).WithResolver(settlement).Register(mux)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))

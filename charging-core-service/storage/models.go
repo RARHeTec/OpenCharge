@@ -23,6 +23,7 @@ const (
 type Order struct {
 	ID              string      `json:"id"`
 	TenantID        string      `json:"tenantId"`
+	UserID          string      `json:"userId"` // wallet owner; needed to settle exceptions
 	TransactionID   string      `json:"transactionId"` // UNIQUE - the idempotency key
 	DeviceID        string      `json:"deviceId"`
 	GunNo           int         `json:"gunNo"`
@@ -41,11 +42,11 @@ type Order struct {
 
 // OrderSegment is one time-of-use band inside a bill.
 type OrderSegment struct {
-	OrderID     string
-	Period      string // sharp | peak | flat | valley
-	Price       money.Price
-	EnergyUnits int64
-	Amount      money.Money
+	OrderID     string      `json:"orderId"`
+	Period      string      `json:"period"` // sharp | peak | flat | valley
+	Price       money.Price `json:"price"`
+	EnergyUnits int64       `json:"energyUnits"`
+	Amount      money.Money `json:"amount"`
 }
 
 // TariffVersion is an immutable price snapshot.

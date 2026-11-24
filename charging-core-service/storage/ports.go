@@ -12,6 +12,7 @@ type OrderStore interface {
 	GetByTransaction(ctx context.Context, txnID string) (Order, bool, error)
 	Save(ctx context.Context, o Order) error
 	SaveSegments(ctx context.Context, orderID string, segs []OrderSegment) error
+	GetSegments(ctx context.Context, orderID string) ([]OrderSegment, error)
 	List(ctx context.Context, tenantID string, limit int) ([]Order, error)
 }
 
@@ -36,4 +37,7 @@ type AuditStore interface {
 	WriteException(ctx context.Context, e ExceptionOrder) error
 	ListExceptions(ctx context.Context, tenantID string, limit int) ([]ExceptionOrder, error)
 	ResolveException(ctx context.Context, id, operator string) error
+	// ResolveExceptionByTransaction marks the exception for a bill resolved.
+	// Returns the number of rows updated (0 = no matching unresolved exception).
+	ResolveExceptionByTransaction(ctx context.Context, transactionID, operator string) (int, error)
 }

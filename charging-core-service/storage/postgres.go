@@ -32,6 +32,7 @@ func (s *PGStore) DB() *gorm.DB { return s.db }
 type orderRow struct {
 	ID              string `gorm:"primaryKey"`
 	TenantID        string `gorm:"index"`
+	UserID          string `gorm:"column:user_id;index"`
 	TransactionID   string `gorm:"uniqueIndex"`
 	DeviceID        string
 	GunNo           int
@@ -128,7 +129,7 @@ func (s *PGStore) AutoMigrate() error {
 
 func (s *PGStore) CreateOrder(_ context.Context, o Order) (bool, error) {
 	row := orderRow{
-		ID: o.ID, TenantID: o.TenantID, TransactionID: o.TransactionID,
+		ID: o.ID, TenantID: o.TenantID, UserID: o.UserID, TransactionID: o.TransactionID,
 		DeviceID: o.DeviceID, GunNo: o.GunNo, StationID: o.StationID,
 		State: string(o.State), TariffVersionID: o.TariffVersionID,
 		EnergyUnits: o.EnergyUnits, PileAmount: o.PileAmount,
@@ -151,7 +152,7 @@ func (s *PGStore) orderExists(txnID string) bool {
 
 func rowToOrder(r orderRow) Order {
 	return Order{
-		ID: r.ID, TenantID: r.TenantID, TransactionID: r.TransactionID,
+		ID: r.ID, TenantID: r.TenantID, UserID: r.UserID, TransactionID: r.TransactionID,
 		DeviceID: r.DeviceID, GunNo: r.GunNo, StationID: r.StationID,
 		State: OrderState(r.State), TariffVersionID: r.TariffVersionID,
 		EnergyUnits: r.EnergyUnits, PileAmount: r.PileAmount,
@@ -194,6 +195,21 @@ func (s *PGStore) SaveOrderSegments(_ context.Context, orderID string, segs []Or
 		return nil
 	}
 	return s.db.Create(&rows).Error
+}
+
+func (s *PGStore) GetOrderSegments(_ context.Context, orderID string) ([]OrderSegment, error) {
+	var rows []segmentRow
+	if err := s.db.Where("order_id = ?", orderID).Order("id").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]OrderSegment, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, OrderSegment{
+			OrderID: r.OrderID, Period: r.Period, Price: r.Price,
+			EnergyUnits: r.EnergyUnits, Amount: r.Amount,
+		})
+	}
+	return out, nil
 }
 
 func (s *PGStore) ListOrders(_ context.Context, tenantID string, limit int) ([]Order, error) {

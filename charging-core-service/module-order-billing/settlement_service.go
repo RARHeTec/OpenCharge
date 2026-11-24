@@ -138,14 +138,14 @@ func (s *SettlementService) Settle(ctx context.Context, bill Bill) (Result, erro
 
 	// 2. Hard exclusions - never auto-settle these.
 	if code := s.hardExclusion(bill); code != "" {
-		return s.hold(ctx, bill, orderID, money.Zero(), code, now)
+		return s.hold(ctx, bill, orderID, money.Zero(), code, nil, now)
 	}
 
 	// 3. Platform repricing from the immutable tariff snapshot.
 	platform, segs, err := s.reprice(ctx, bill)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) || errors.Is(err, errTariffMissing) {
-			return s.hold(ctx, bill, orderID, money.Zero(), ReasonNoTariff, now)
+			return s.hold(ctx, bill, orderID, money.Zero(), ReasonNoTariff, nil, now)
 		}
 		return Result{}, err
 	}
@@ -156,7 +156,7 @@ func (s *SettlementService) Settle(ctx context.Context, bill Bill) (Result, erro
 	charge := platform
 	if diff != 0 {
 		if !money.WithinTolerance(diff, platform, s.tolerance) {
-			return s.hold(ctx, bill, orderID, platform, ReasonTolerance, now)
+			return s.hold(ctx, bill, orderID, platform, ReasonTolerance, segs, now)
 		}
 		rule = "within_tolerance"
 		// Never charge the driver more than the device displayed.
@@ -165,7 +165,7 @@ func (s *SettlementService) Settle(ctx context.Context, bill Bill) (Result, erro
 
 	// 5. Persist the order (idempotent create) and its segments.
 	o := storage.Order{
-		ID: orderID, TenantID: bill.TenantID, TransactionID: bill.TransactionID,
+		ID: orderID, TenantID: bill.TenantID, UserID: bill.UserID, TransactionID: bill.TransactionID,
 		DeviceID: bill.DeviceID, GunNo: bill.GunNo, StationID: bill.StationID,
 		State: storage.OrderCompleted, TariffVersionID: bill.TariffVersionID,
 		EnergyUnits: bill.EnergyUnits, PileAmount: bill.PileAmount,
@@ -192,10 +192,10 @@ func (s *SettlementService) Settle(ctx context.Context, bill Bill) (Result, erro
 	wallet, err := s.wallets.Debit(ctx, bill.UserID, bill.TenantID, bill.TransactionID, charge)
 	if err != nil {
 		if errors.Is(err, storage.ErrWalletNotFound) {
-			return s.hold(ctx, bill, orderID, platform, ReasonNoWallet, now)
+			return s.hold(ctx, bill, orderID, platform, ReasonNoWallet, segs, now)
 		}
 		if errors.Is(err, storage.ErrInsufficient) {
-			return s.hold(ctx, bill, orderID, platform, ReasonInsufficient, now)
+			return s.hold(ctx, bill, orderID, platform, ReasonInsufficient, segs, now)
 		}
 		return Result{}, err
 	}
@@ -282,10 +282,10 @@ func (s *SettlementService) reprice(ctx context.Context, bill Bill) (money.Money
 }
 
 // hold stores an exception and never touches the wallet.
-func (s *SettlementService) hold(ctx context.Context, bill Bill, orderID string, platform money.Money, reason string, now time.Time) (Result, error) {
+func (s *SettlementService) hold(ctx context.Context, bill Bill, orderID string, platform money.Money, reason string, segs []storage.OrderSegment, now time.Time) (Result, error) {
 	diff := platform.Sub(bill.PileAmount)
 	o := storage.Order{
-		ID: orderID, TenantID: bill.TenantID, TransactionID: bill.TransactionID,
+		ID: orderID, TenantID: bill.TenantID, UserID: bill.UserID, TransactionID: bill.TransactionID,
 		DeviceID: bill.DeviceID, GunNo: bill.GunNo, StationID: bill.StationID,
 		State: storage.OrderException, TariffVersionID: bill.TariffVersionID,
 		EnergyUnits: bill.EnergyUnits, PileAmount: bill.PileAmount,
@@ -299,6 +299,16 @@ func (s *SettlementService) hold(ctx context.Context, bill Bill, orderID string,
 	if !created {
 		existing, _, _ := s.orders.GetByTransaction(ctx, bill.TransactionID)
 		return Result{Status: ResultDuplicate, OrderID: existing.ID}, nil
+	}
+	// Persist the priced segments so operators can inspect the bill breakdown
+	// even though the order is held for review.
+	if len(segs) > 0 {
+		for i := range segs {
+			segs[i].OrderID = orderID
+		}
+		if err := s.orders.SaveSegments(ctx, orderID, segs); err != nil {
+			return Result{}, err
+		}
 	}
 	if err := s.audits.WriteException(ctx, storage.ExceptionOrder{
 		ID: s.idGenerator(), TransactionID: bill.TransactionID, ReasonCode: reason,

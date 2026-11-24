@@ -18,6 +18,7 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:8768", "gateway TCP address")
 	device := flag.String("device", "55031412782301", "device id (14 BCD digits)")
 	gun := flag.Int("gun", 1, "gun number")
+	priceStr := flag.String("price", "0.60000", "tariff price Yuan/kWh the pile bills at (5 decimals)")
 	flag.Parse()
 
 	conn, err := net.Dial("tcp", *addr)
@@ -91,11 +92,14 @@ func main() {
 	copy(txnBody[:16], txn)
 	copy(txnBody[16:23], deviceBCD)
 	txnBody[23] = byte(*gun)
-	binary.LittleEndian.PutUint32(txnBody[38:42], 60000) // flat price 0.60000
+	priceUnits := parsePriceUnits(*priceStr)
+	// Amount = price(1e-5 Yuan/kWh) * energy(1e-4 kWh) / 1e5 -> 1e-4 Yuan units.
+	amountUnits := uint32((uint64(priceUnits) * 5000) / 100000)
+	binary.LittleEndian.PutUint32(txnBody[38:42], priceUnits)
 	binary.LittleEndian.PutUint32(txnBody[42:46], 5000)  // 0.5 kWh
-	binary.LittleEndian.PutUint32(txnBody[50:54], 3000)   // sharp segment amount 0.3 yuan
+	binary.LittleEndian.PutUint32(txnBody[50:54], amountUnits) // sharp segment amount
 	binary.LittleEndian.PutUint32(txnBody[112:116], 5000)
-	binary.LittleEndian.PutUint32(txnBody[120:124], 3000) // 0.3 yuan
+	binary.LittleEndian.PutUint32(txnBody[120:124], amountUnits) // total amount
 	txnBody[141] = 0x01 // app start
 	send(protocol.TypeTransaction, txnBody)
 	recv() // transaction ack
@@ -121,4 +125,35 @@ func bcd16(s string) []byte {
 		out[i/2] = (lo << 4) | hi
 	}
 	return out
+}
+
+// parsePriceUnits converts a decimal Yuan string with up to 5 decimals into
+// 1e-5 Yuan integer units, without using floating point.
+func parsePriceUnits(s string) uint32 {
+	var intPart, frac uint64
+	var seenDot bool
+	digitsAfter := 0
+	for _, c := range s {
+		if c == '.' {
+			seenDot = true
+			continue
+		}
+		if c < '0' || c > '9' {
+			continue
+		}
+		d := uint64(c - '0')
+		if seenDot {
+			if digitsAfter < 5 {
+				frac = frac*10 + d
+				digitsAfter++
+			}
+		} else {
+			intPart = intPart*10 + d
+		}
+	}
+	for digitsAfter < 5 {
+		frac *= 10
+		digitsAfter++
+	}
+	return uint32(intPart*100000 + frac)
 }
