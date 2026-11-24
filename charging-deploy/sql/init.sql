@@ -79,3 +79,52 @@ CREATE TABLE IF NOT EXISTS tenant_grant (
   revoked_at BIGINT
 );
 CREATE INDEX IF NOT EXISTS idx_grant_user ON tenant_grant(user_id);
+
+-- Billing audit and exception tracking
+CREATE TABLE IF NOT EXISTS order_segments (
+  id           BIGSERIAL PRIMARY KEY,
+  order_id     VARCHAR(64) NOT NULL,
+  period       VARCHAR(16) NOT NULL,
+  price        DECIMAL(18,5) NOT NULL,
+  energy_units BIGINT NOT NULL,
+  amount       DECIMAL(18,4) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_segments_order ON order_segments(order_id);
+
+CREATE TABLE IF NOT EXISTS billing_audit (
+  id              VARCHAR(64) PRIMARY KEY,
+  transaction_id  VARCHAR(64) NOT NULL,
+  rule            VARCHAR(32) NOT NULL,
+  pile_amount     DECIMAL(18,4) NOT NULL,
+  platform_amount DECIMAL(18,4) NOT NULL,
+  diff            DECIMAL(18,4) NOT NULL,
+  charge_amount   DECIMAL(18,4) NOT NULL,
+  trace_id        VARCHAR(64),
+  created_at      BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_txn ON billing_audit(transaction_id);
+
+CREATE TABLE IF NOT EXISTS exception_order (
+  id              VARCHAR(64) PRIMARY KEY,
+  transaction_id  VARCHAR(64) NOT NULL,
+  reason_code     VARCHAR(64) NOT NULL,
+  pile_amount     DECIMAL(18,4) NOT NULL,
+  platform_amount DECIMAL(18,4) NOT NULL,
+  diff            DECIMAL(18,4) NOT NULL,
+  trace_id        VARCHAR(64),
+  created_at      BIGINT NOT NULL,
+  resolved        BOOLEAN NOT NULL DEFAULT FALSE,
+  resolved_by     VARCHAR(64)
+);
+CREATE INDEX IF NOT EXISTS idx_exception_txn ON exception_order(transaction_id);
+
+CREATE TABLE IF NOT EXISTS applied_debit (
+  txn_id VARCHAR(64) PRIMARY KEY
+);
+
+-- Add settlement columns to charging_order if upgrading an existing schema
+ALTER TABLE charging_order ADD COLUMN IF NOT EXISTS pile_amount DECIMAL(18,4) NOT NULL DEFAULT 0;
+ALTER TABLE charging_order ADD COLUMN IF NOT EXISTS platform_amount DECIMAL(18,4) NOT NULL DEFAULT 0;
+ALTER TABLE charging_order ADD COLUMN IF NOT EXISTS charge_amount DECIMAL(18,4) NOT NULL DEFAULT 0;
+ALTER TABLE charging_order ADD COLUMN IF NOT EXISTS exception_reason VARCHAR(64);
+ALTER TABLE charging_order ADD COLUMN IF NOT EXISTS station_id VARCHAR(64);

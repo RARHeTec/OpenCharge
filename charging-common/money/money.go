@@ -94,6 +94,8 @@ func (m Money) Sub(n Money) Money  { return m - n }
 func (m Money) Neg() Money         { return -m }
 func (m Money) IsZero() bool       { return m == 0 }
 func (m Money) IsNegative() bool   { return m < 0 }
+func (m Money) LessThan(n Money) bool { return m < n }
+func (m Money) GreaterThan(n Money) bool { return m > n }
 
 // MulRate multiplies by a rate expressed in units (scale=4), half-up.
 func (m Money) MulRate(rate Money) Money {

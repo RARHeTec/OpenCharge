@@ -91,6 +91,7 @@ func main() {
 	txnBody[23] = byte(*gun)
 	binary.LittleEndian.PutUint32(txnBody[38:42], 60000) // flat price 0.60000
 	binary.LittleEndian.PutUint32(txnBody[42:46], 5000)  // 0.5 kWh
+	binary.LittleEndian.PutUint32(txnBody[50:54], 3000)   // sharp segment amount 0.3 yuan
 	binary.LittleEndian.PutUint32(txnBody[112:116], 5000)
 	binary.LittleEndian.PutUint32(txnBody[120:124], 3000) // 0.3 yuan
 	txnBody[141] = 0x01 // app start
@@ -113,13 +114,9 @@ func bcd14(s string) []byte {
 
 func bcd16(s string) []byte {
 	out := make([]byte, 16)
-	for i := 0; i < 16 && i < len(s); i++ {
-		d := s[i] - '0'
-		if i%2 == 0 {
-			out[i/2] = d
-		} else {
-			out[i/2] |= d << 4
-		}
+	for i := 0; i+1 < len(s) && i/2 < 16; i += 2 {
+		hi, lo := s[i]-'0', s[i+1]-'0'
+		out[i/2] = (lo << 4) | hi
 	}
 	return out
 }
