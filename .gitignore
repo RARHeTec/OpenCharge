@@ -1,0 +1,28 @@
+# Go
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+bin/
+.bin/
+dist/
+go.work.sum
+
+# Node
+node_modules/
+.env
+.env.local
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Deploy
+charging-deploy/.env

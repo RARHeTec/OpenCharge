@@ -1,0 +1,8 @@
+{
+  "name": "@opencharge/uni-app",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@opencharge/shared": "file:../shared"
+  }
+}

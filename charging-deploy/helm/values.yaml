@@ -1,0 +1,21 @@
+replicaCount: 2
+
+gateway:
+  image: rarhetec/opencharge-iot-gateway:latest
+  port: 9000
+  hpa:
+    minReplicas: 2
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+  gracefulShutdownSeconds: 30
+
+core:
+  image: rarhetec/opencharge-core-service:latest
+  port: 8080
+
+ingress:
+  enabled: true
+  host: charge.example.com
+  tlsSecret: opencharge-tls
+
+resources: {}

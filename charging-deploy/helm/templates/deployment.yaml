@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-gateway
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-gateway
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-gateway
+    spec:
+      containers:
+        - name: gateway
+          image: {{ .Values.gateway.image }}
+          ports:
+            - containerPort: {{ .Values.gateway.port }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep {{ .Values.gateway.gracefulShutdownSeconds }}"]
+          terminationGracePeriodSeconds: 60
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-core
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-core
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-core
+    spec:
+      containers:
+        - name: core
+          image: {{ .Values.core.image }}
+          ports:
+            - containerPort: {{ .Values.core.port }}

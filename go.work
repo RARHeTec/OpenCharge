@@ -1,0 +1,8 @@
+go 1.22
+
+use (
+	./charging-common
+	./charging-core-service
+	./charging-iot-gateway
+	./charging-thing-model
+)
