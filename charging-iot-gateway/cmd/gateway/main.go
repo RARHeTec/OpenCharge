@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -46,8 +47,10 @@ func main() {
 	wallets := storage.NewMemoryWalletStore()
 	audits := storage.NewMemoryAuditStore()
 	registry := storage.NewMemoryRegistryStore()
+	pricePlans := storage.NewMemoryPricePlanStore()
 	seed(tariffs, wallets)
 	seedRegistry(registry, *tenantID, *stationID, *userID)
+	seedPricePlans(pricePlans, *tenantID, *stationID)
 
 	settlement := billing.NewSettlementService(orders, tariffs, wallets, audits)
 	eventBus := openBus(*kafkaBroker)
@@ -71,7 +74,8 @@ func main() {
 	mux := http.NewServeMux()
 	api := adminapi.NewAPI(audits, orders, stateStore).
 		WithTariffs(tariffs).WithResolver(settlement).WithRegistry(registry).
-		WithHeartbeats(heartbeatStore).WithKeys(parseAdminKeys(*adminKeys))
+		WithHeartbeats(heartbeatStore).WithPricePlans(pricePlans).
+		WithKeys(parseAdminKeys(*adminKeys))
 	if *adminKeys != "" {
 		slog.Info("admin API authentication enabled")
 	} else {
@@ -248,11 +252,21 @@ func seedRegistry(reg storage.RegistryStore, tenantID, stationID, userID string)
 		ID: stationID, TenantID: tenantID, Name: "演示场站", Timezone: "Asia/Shanghai",
 		CreatedAt: time.Now(),
 	})
-	for _, id := range []string{"55031412782305", "55031412782306", "55031412782307",
-		"55031412782310", "55031412782311", "55031412782312", "55304121873250"} {
+	// Two device types so the admin pricing page shows both cards, matching
+	// the operator's screenshot (one pile of each type).
+	for _, d := range []struct{ id, deviceType string }{
+		{"55031412782305", "直流160kW-浙江艾充ZJAC-DC-160KW"},
+		{"55031412782306", "直流240kW-浙江艾充ZJAC-DC-240KW"},
+		{"55031412782307", "直流160kW-浙江艾充ZJAC-DC-160KW"},
+		{"55031412782310", "直流240kW-浙江艾充ZJAC-DC-240KW"},
+		{"55031412782311", "直流160kW-浙江艾充ZJAC-DC-160KW"},
+		{"55031412782312", "直流240kW-浙江艾充ZJAC-DC-240KW"},
+		{"55304121873250", "直流160kW-浙江艾充ZJAC-DC-160KW"},
+	} {
 		_ = reg.SaveDevice(ctx, storage.Device{
-			DeviceID: id, TenantID: tenantID, StationID: stationID,
-			Protocol: "yunkuaichong-v1.6", DefaultUserID: userID, GunCount: 2,
+			DeviceID: d.id, TenantID: tenantID, StationID: stationID,
+			Protocol: "yunkuaichong-v1.6", DeviceType: d.deviceType,
+			DefaultUserID: userID, GunCount: 2,
 		})
 	}
 	slog.Info("seeded demo station and devices", "station", stationID, "tenant", tenantID)
@@ -271,4 +285,36 @@ func openHeartbeatStore(addr string) heartbeat.Store {
 	}
 	slog.Info("using Redis heartbeat counters", "addr", addr)
 	return heartbeat.NewRedisStore(rdb)
+}
+
+// seedPricePlans creates the demo prices shown in the first screenshot so the
+// admin page has real data on a fresh start.
+func seedPricePlans(store storage.PricePlanStore, tenantID, stationID string) {
+	ctx := context.Background()
+	segs := []storage.PriceSegment{
+		{Seq: 1, StartMin: 0, EndMin: 420, Period: storage.PeriodValley,
+			ElecPrice: money.MustParsePrice("0.6"), ServicePrice: money.MustParsePrice("0.18")},
+		{Seq: 2, StartMin: 420, EndMin: 660, Period: storage.PeriodFlat,
+			ElecPrice: money.MustParsePrice("0.88"), ServicePrice: money.MustParsePrice("0.15")},
+		{Seq: 3, StartMin: 660, EndMin: 840, Period: storage.PeriodValley,
+			ElecPrice: money.MustParsePrice("0.6"), ServicePrice: money.MustParsePrice("0.18")},
+		{Seq: 4, StartMin: 840, EndMin: 960, Period: storage.PeriodFlat,
+			ElecPrice: money.MustParsePrice("0.88"), ServicePrice: money.MustParsePrice("0.15")},
+		{Seq: 5, StartMin: 960, EndMin: 1350, Period: storage.PeriodPeak,
+			ElecPrice: money.MustParsePrice("1.195"), ServicePrice: money.MustParsePrice("0.095")},
+		{Seq: 6, StartMin: 1350, EndMin: 1440, Period: storage.PeriodFlat,
+			ElecPrice: money.MustParsePrice("0.88"), ServicePrice: money.MustParsePrice("0.15")},
+	}
+	for i, dt := range []string{
+		"直流160kW-浙江艾充ZJAC-DC-160KW",
+		"直流240kW-浙江艾充ZJAC-DC-240KW",
+	} {
+		_ = store.Save(ctx, storage.PricePlan{
+			ID: fmt.Sprintf("pp-demo-%d", i+1), TenantID: tenantID, StationID: stationID,
+			DeviceType: dt, EffectiveAt: time.Now(), EffectiveNow: true,
+			Status: "valid", Source: "manual", Operator: "138190",
+			Segments: segs, CreatedAt: time.Now(), DeliveredCount: 1, SuccessCount: 1,
+		})
+	}
+	slog.Info("seeded demo price plans", "station", stationID)
 }

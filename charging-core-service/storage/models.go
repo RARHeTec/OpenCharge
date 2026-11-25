@@ -113,6 +113,7 @@ type Device struct {
 	TenantID      string    `json:"tenantId"`
 	StationID     string    `json:"stationId"`
 	Protocol      string    `json:"protocol"`
+	DeviceType    string    `json:"deviceType"`
 	DefaultUserID string    `json:"defaultUserId"`
 	GunCount      int       `json:"gunCount"`
 	LastSeenAt    time.Time `json:"lastSeenAt"`

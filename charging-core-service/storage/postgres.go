@@ -122,7 +122,7 @@ func (s *PGStore) AutoMigrate() error {
 	return s.db.AutoMigrate(
 		&orderRow{}, &segmentRow{}, &tariffRow{}, &walletRow{},
 		&appliedDebitRow{}, &auditRow{}, &exceptionRow{},
-		&stationRow{}, &deviceRow{},
+		&stationRow{}, &deviceRow{}, &pricePlanRow{}, &priceSegmentRow{},
 	)
 }
 
@@ -418,6 +418,7 @@ type deviceRow struct {
 	TenantID      string `gorm:"index"`
 	StationID     string `gorm:"index"`
 	Protocol      string
+	DeviceType    string `gorm:"column:device_type"`
 	DefaultUserID string `gorm:"column:default_user_id"`
 	GunCount      int    `gorm:"column:gun_count"`
 	LastSeenAt    time.Time
@@ -465,7 +466,7 @@ func (s *PGStore) ListStationRecords(_ context.Context, tenantID string) ([]Stat
 func (s *PGStore) SaveDeviceRecord(_ context.Context, d Device) error {
 	return s.db.Save(&deviceRow{
 		DeviceID: d.DeviceID, TenantID: d.TenantID, StationID: d.StationID,
-		Protocol: d.Protocol, DefaultUserID: d.DefaultUserID,
+		Protocol: d.Protocol, DeviceType: d.DeviceType, DefaultUserID: d.DefaultUserID,
 		GunCount: d.GunCount, LastSeenAt: d.LastSeenAt,
 	}).Error
 }
@@ -480,7 +481,7 @@ func (s *PGStore) GetDeviceRecord(_ context.Context, deviceID string) (Device, b
 		return Device{}, false, err
 	}
 	return Device{DeviceID: r.DeviceID, TenantID: r.TenantID, StationID: r.StationID,
-		Protocol: r.Protocol, DefaultUserID: r.DefaultUserID,
+		Protocol: r.Protocol, DeviceType: r.DeviceType, DefaultUserID: r.DefaultUserID,
 		GunCount: r.GunCount, LastSeenAt: r.LastSeenAt}, true, nil
 }
 

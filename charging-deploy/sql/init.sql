@@ -128,3 +128,35 @@ ALTER TABLE charging_order ADD COLUMN IF NOT EXISTS platform_amount DECIMAL(18,4
 ALTER TABLE charging_order ADD COLUMN IF NOT EXISTS charge_amount DECIMAL(18,4) NOT NULL DEFAULT 0;
 ALTER TABLE charging_order ADD COLUMN IF NOT EXISTS exception_reason VARCHAR(64);
 ALTER TABLE charging_order ADD COLUMN IF NOT EXISTS station_id VARCHAR(64);
+
+-- Adjustable pricing plans (admin 调整定价). Separate from tariff_version
+-- which is the 48-slot settlement snapshot; this table holds editable
+-- time windows with electricity/service fee split for display and downlink.
+CREATE TABLE IF NOT EXISTS price_plan (
+  id              VARCHAR(64) PRIMARY KEY,
+  tenant_id       VARCHAR(64) NOT NULL,
+  station_id      VARCHAR(64) NOT NULL,
+  device_type     VARCHAR(128) NOT NULL,
+  effective_at    BIGINT NOT NULL,
+  effective_now   BOOLEAN NOT NULL DEFAULT TRUE,
+  status          VARCHAR(16) NOT NULL,
+  source          VARCHAR(32) NOT NULL,
+  operator        VARCHAR(64),
+  note            VARCHAR(256),
+  delivered_count INT NOT NULL DEFAULT 0,
+  success_count   INT NOT NULL DEFAULT 0,
+  created_at      BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_price_plan_scope ON price_plan(tenant_id, station_id, device_type, status);
+
+CREATE TABLE IF NOT EXISTS price_plan_segment (
+  id            SERIAL PRIMARY KEY,
+  plan_id       VARCHAR(64) NOT NULL,
+  seq           INT NOT NULL,
+  start_min     INT NOT NULL,
+  end_min       INT NOT NULL,
+  period        VARCHAR(16) NOT NULL,
+  elec_price    BIGINT NOT NULL,
+  service_price BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_price_plan_segment_plan ON price_plan_segment(plan_id);

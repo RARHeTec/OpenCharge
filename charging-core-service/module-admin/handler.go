@@ -25,6 +25,7 @@ type API struct {
 	keys     KeyRegistry
 	registry  storage.RegistryStore
 	heartbeats heartbeat.Store
+	pricePlans storage.PricePlanStore
 }
 
 func NewAPI(store storage.AuditStore, orders storage.OrderStore, states ...state.Store) *API {
@@ -52,6 +53,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	a.RegisterTariffRoutes(mux)
 	a.RegisterRegistryRoutes(mux)
 	a.RegisterHeartbeatRoutes(mux)
+	a.RegisterPricePlanRoutes(mux)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -222,6 +224,12 @@ type resolveRequest struct {
 // Resolver is the settlement engine surface needed to close an exception.
 type Resolver interface {
 	ResolveException(ctx context.Context, req billing.ResolveRequest) (billing.ResolveResult, error)
+}
+
+// WithPricePlans attaches the adjustable pricing plan store.
+func (a *API) WithPricePlans(p storage.PricePlanStore) *API {
+	a.pricePlans = p
+	return a
 }
 
 // WithHeartbeats attaches cumulative heartbeat counters for the admin view.

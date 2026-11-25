@@ -53,3 +53,15 @@ type RegistryStore interface {
 	GetDevice(ctx context.Context, deviceID string) (Device, bool, error)
 	ListDevices(ctx context.Context, tenantID, stationID string) ([]Device, error)
 }
+
+// PricePlanStore holds adjustable pricing versions shown on the admin
+// "当前价格 / 历史定价" pages.
+type PricePlanStore interface {
+	Save(ctx context.Context, plan PricePlan) error
+	Get(ctx context.Context, id string) (PricePlan, bool, error)
+	// Current returns the valid plan for a tenant/station/deviceType.
+	Current(ctx context.Context, tenantID, stationID, deviceType string) (PricePlan, bool, error)
+	List(ctx context.Context, tenantID, stationID, deviceType string, history bool) ([]PricePlan, error)
+	// InvalidateCurrent marks the active plan for this scope as invalid.
+	InvalidateCurrent(ctx context.Context, tenantID, stationID, deviceType string) error
+}
