@@ -18,6 +18,7 @@ type pricePlanRow struct {
 	Source         string
 	Operator       string
 	Note           string
+	ModelCode      int `gorm:"column:model_code"`
 	DeliveredCount int    `gorm:"column:delivered_count"`
 	SuccessCount   int    `gorm:"column:success_count"`
 	CreatedAt      time.Time
@@ -46,7 +47,7 @@ func (w *PGPricePlanStore) Save(ctx context.Context, plan PricePlan) error {
 			ID: plan.ID, TenantID: plan.TenantID, StationID: plan.StationID,
 			DeviceType: plan.DeviceType, EffectiveAt: plan.EffectiveAt,
 			EffectiveNow: plan.EffectiveNow, Status: plan.Status, Source: plan.Source,
-			Operator: plan.Operator, Note: plan.Note,
+			Operator: plan.Operator, Note: plan.Note, ModelCode: plan.ModelCode,
 			DeliveredCount: plan.DeliveredCount, SuccessCount: plan.SuccessCount,
 			CreatedAt: plan.CreatedAt,
 		}

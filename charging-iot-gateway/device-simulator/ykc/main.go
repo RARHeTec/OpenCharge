@@ -20,6 +20,7 @@ func main() {
 	gun := flag.Int("gun", 1, "gun number")
 	priceStr := flag.String("price", "0.60000", "tariff price Yuan/kWh the pile bills at (5 decimals)")
 	minutesAgo := flag.Int("minutes-ago", 0, "charge start time offset in minutes (simulates a delayed offline bill)")
+	listen := flag.Bool("listen", false, "stay online and answer 0x58 tariff downlinks with 0x57")
 	flag.Parse()
 
 	conn, err := net.Dial("tcp", *addr)
@@ -65,6 +66,41 @@ func main() {
 	login[29] = 0x04 // operator other
 	send(protocol.TypeLogin, login)
 	recv() // login ack
+
+	if *listen {
+		fmt.Println("listen mode: waiting for downlink frames (Ctrl+C to stop)")
+		_ = conn.SetReadDeadline(time.Time{})
+		split := protocol.NewSplitter(conn)
+		for {
+			wire, err := split.NextFrame()
+			if err != nil {
+				log.Printf("listen ended: %v", err)
+				break
+			}
+			f, err := protocol.Decode(wire)
+			if err != nil {
+				log.Printf("bad frame: %v", err)
+				continue
+			}
+			fmt.Printf("<- type=0x%02X len=%d\n", f.Type, len(f.Body))
+			switch f.Type {
+			case protocol.TypeTariffSet:
+				model, err := protocol.ParseTariffModel(f.Body)
+				if err != nil {
+					fmt.Printf("tariff model parse failed: %v\n", err)
+					send(protocol.TypeTariffSetAck,
+						protocol.BuildTariffSetAckBody(protocol.DeviceBCD(*device), false))
+					continue
+				}
+				fmt.Printf("tariff model accepted: code=%d valley=%d/%d peak=%d/%d slots=%d\n",
+					model.ModelCode, model.Rates.ValleyElec, model.Rates.ValleyService,
+					model.Rates.PeakElec, model.Rates.PeakService, len(model.Slots))
+				send(protocol.TypeTariffSetAck,
+					protocol.BuildTariffSetAckBody(protocol.DeviceBCD(*device), true))
+			}
+		}
+		return
+	}
 
 	// 2. heartbeat
 	hb := append(append([]byte(nil), deviceBCD...), byte(*gun), 0x00)

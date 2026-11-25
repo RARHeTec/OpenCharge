@@ -13,6 +13,8 @@ const history = ref([])
 const error = ref('')
 const notice = ref('')
 const showDialog = ref(false)
+const detailPlan = ref(null)
+const delivering = ref(false)
 
 function req(path, opts) {
   return fetch(`${props.apiBase}${path}`, opts).then(async (res) => {
@@ -64,6 +66,35 @@ const periodLabel = (p) => ({ sharp: '尖', peak: '峰', flat: '平', valley: '�
 const periodClass = (p) => ({ sharp: 'sharp', peak: 'peak', flat: 'flat', valley: 'valley' }[p] || 'flat')
 const timeOf = (plan) => plan?.createdAt ? new Date(plan.createdAt).toLocaleString('zh-CN', { hour12: false }) : '—'
 
+function viewDelivery(p) {
+  detailPlan.value = p
+}
+
+async function deliver() {
+  const plan = activePlan.value
+  if (!plan) {
+    error.value = '当前设备类型没有可下发的定价'
+    return
+  }
+  delivering.value = true
+  notice.value = ''
+  try {
+    const res = await fetch(`${props.apiBase}/api/admin/price-plans/${encodeURIComponent(plan.id)}/deliver`, {
+      method: 'POST',
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`)
+    notice.value = `已下发 ${json.sent} 台桩；目标 ${(json.targeted || []).join('、') || '无'}${
+      (json.skipped || []).length ? `；跳过（离线/充电中）${json.skipped.join('、')}` : ''}`
+    error.value = ''
+    await load()
+  } catch (e) {
+    error.value = `下发失败：${e.message}`
+  } finally {
+    delivering.value = false
+  }
+}
+
 onMounted(load)
 watch([tenantId, stationId], load)
 </script>
@@ -84,7 +115,9 @@ watch([tenantId, stationId], load)
       <label>租户 <input v-model="tenantId" @change="load" /></label>
       <label>场站 <input v-model="stationId" @change="load" /></label>
       <button class="primary" @click="showDialog = true">调整定价</button>
-      <button class="plain">柜下发记录</button>
+      <button class="plain" :disabled="delivering || !activePlan" @click="deliver">
+        {{ delivering ? '下发中…' : '下发到桩' }}
+      </button>
     </div>
 
     <template v-if="view === 'current'">
@@ -131,13 +164,40 @@ watch([tenantId, stationId], load)
             <td>{{ p.source === 'manual' ? '人工定价' : p.source }}</td>
             <td>{{ p.note || p.source === 'manual' ? (p.note || '人工定价') : '—' }}</td>
             <td>{{ p.operator }}</td>
-            <td class="ops"><button class="link">详情</button><button class="link">柜下发记录</button></td>
+            <td class="ops"><button class="link" @click="detailPlan = p">详情</button><button class="link" @click="viewDelivery(p)">柜下发记录</button></td>
           </tr>
           <tr v-if="!history.length"><td colspan="8" class="empty">暂无历史定价</td></tr>
         </tbody>
       </table>
       <p class="pager">共 {{ history.length }} 条记录</p>
     </template>
+
+    <div v-if="detailPlan" class="mask" @click.self="detailPlan = null">
+      <div class="detail-dialog">
+        <div class="title">
+          <span>定价详情 · 模型 {{ detailPlan.modelCode }}</span>
+          <button class="x" @click="detailPlan = null">×</button>
+        </div>
+        <div class="detail-body">
+          <p class="meta">设备类型 {{ detailPlan.deviceType }} · 状态 {{ detailPlan.status === 'valid' ? '有效' : '无效' }} ·
+             下发 {{ detailPlan.deliveredCount || 0 }} 台 / 成功 {{ detailPlan.successCount || 0 }} 台 ·
+             操作人 {{ detailPlan.operator }}</p>
+          <table class="detail-table">
+            <thead><tr><th>序号</th><th>时间</th><th>时段</th><th>电费</th><th>服务费</th><th>总单价</th></tr></thead>
+            <tbody>
+              <tr v-for="seg in detailPlan.segments" :key="seg.seq">
+                <td>{{ seg.seq }}</td>
+                <td class="mono">{{ String(Math.floor(seg.startMin/60)).padStart(2,'0') }}:{{ String(seg.startMin%60).padStart(2,'0') }}~{{ String(Math.floor(seg.endMin/60)).padStart(2,'0') }}:{{ String(seg.endMin%60).padStart(2,'0') }}</td>
+                <td>{{ periodLabel(seg.period) }}</td>
+                <td class="num">{{ fmtPrice(seg.elecPrice) }}</td>
+                <td class="num">{{ fmtPrice(seg.servicePrice) }}</td>
+                <td class="num total">{{ totalOf(seg) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
 
     <PricePlanDialog v-if="showDialog" :api-base="apiBase" :tenant-id="tenantId"
                      :station-id="stationId" :device-types="deviceTypes"
@@ -187,4 +247,15 @@ button.link { background: none; border: 0; color: #1677ff; cursor: pointer; font
 .mono { font-family: ui-monospace, monospace; }
 .small { font-size: 11px; }
 .notice { color: #00a870; font-size: 13px; }
+.mask { position: absolute; inset: 0; background: rgba(0,0,0,.3); z-index: 40; display: flex; justify-content: center; align-items: flex-start; }
+.detail-dialog { background: #fff; border-radius: 6px; width: 760px; max-width: 94%; margin-top: 40px; box-shadow: 0 6px 20px rgba(0,0,0,.15); }
+.detail-dialog .title { display: flex; justify-content: space-between; padding: 12px 18px; border-bottom: 1px solid #eee; font-size: 14px; }
+.detail-dialog .x { background: none; border: 0; font-size: 18px; cursor: pointer; }
+.detail-body { padding: 16px 18px; max-height: 70vh; overflow: auto; }
+.meta { font-size: 12px; color: #4e5969; margin: 0 0 12px; }
+.detail-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.detail-table th, .detail-table td { border: 1px solid #e5e6eb; padding: 8px 10px; text-align: left; }
+.detail-table th { background: #fafafa; }
+.detail-table td.num { text-align: right; }
+button.plain:disabled { opacity: .5; cursor: not-allowed; }
 </style>

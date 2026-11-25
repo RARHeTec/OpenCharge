@@ -143,6 +143,7 @@ CREATE TABLE IF NOT EXISTS price_plan (
   source          VARCHAR(32) NOT NULL,
   operator        VARCHAR(64),
   note            VARCHAR(256),
+  model_code      INT NOT NULL DEFAULT 0,
   delivered_count INT NOT NULL DEFAULT 0,
   success_count   INT NOT NULL DEFAULT 0,
   created_at      BIGINT NOT NULL

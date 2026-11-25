@@ -98,6 +98,8 @@ type PricePlan struct {
 	Source       string         `json:"source"` // manual | imported | copied
 	Operator     string         `json:"operator"`
 	Note         string         `json:"note"`
+	// ModelCode is the 2-byte BCD billing-model number sent to piles in 0x58.
+	ModelCode    int            `json:"modelCode"`
 	Segments     []PriceSegment `json:"segments"`
 	CreatedAt    time.Time      `json:"createdAt"`
 	// Delivery info, filled by the 0x58 downlink phase later.
@@ -134,4 +136,65 @@ func ValidatePlan(plan PricePlan) error {
 		return fmt.Errorf("segments cover %d minutes, want 1440", cursor)
 	}
 	return nil
+}
+
+
+// PriceToProtocol converts an editable PricePlan into the 0x58 billing model.
+// It maps variable minute windows onto 48 half-hour slots, and collapses the
+// per-segment prices into one rate pair per period (the protocol only has 8
+// price fields). Prices must be identical within a period or the plan cannot
+// be delivered faithfully.
+func PriceToProtocol(plan PricePlan) (modelCode uint16, rates struct {
+	SharpElec, SharpService, PeakElec, PeakService,
+	FlatElec, FlatService, ValleyElec, ValleyService uint64
+}, slots [48]byte, err error) {
+	if len(plan.Segments) == 0 {
+		err = fmt.Errorf("no segments")
+		return
+	}
+	// Fill slots by checking which minute window contains each slot.
+	for i := 0; i < 48; i++ {
+		minute := i * 30
+		found := false
+		for _, seg := range plan.Segments {
+			if minute >= seg.StartMin && minute < seg.EndMin {
+				slots[i] = seg.Period.ProtocolCode()
+				found = true
+				break
+			}
+		}
+		if !found {
+			err = fmt.Errorf("slot %d (%d min) uncovered", i, minute)
+			return
+		}
+	}
+	// First price pair seen for each period wins; a mismatch is an error.
+	type pair struct{ elec, svc uint64 }
+	seen := make(map[Period]pair)
+	for _, seg := range plan.Segments {
+		p := pair{uint64(seg.ElecPrice), uint64(seg.ServicePrice)}
+		if old, ok := seen[seg.Period]; ok {
+			if old != p {
+				err = fmt.Errorf("period %s has inconsistent prices (%d/%d vs %d/%d); "+
+					"protocol allows one rate per period", seg.Period, old.elec, old.svc, p.elec, p.svc)
+				return
+			}
+		} else {
+			seen[seg.Period] = p
+		}
+	}
+	get := func(period Period) pair {
+		if p, ok := seen[period]; ok {
+			return p
+		}
+		return pair{}
+	}
+	sharp, peak := get(PeriodSharp), get(PeriodPeak)
+	flat, valley := get(PeriodFlat), get(PeriodValley)
+	rates.SharpElec, rates.SharpService = sharp.elec, sharp.svc
+	rates.PeakElec, rates.PeakService = peak.elec, peak.svc
+	rates.FlatElec, rates.FlatService = flat.elec, flat.svc
+	rates.ValleyElec, rates.ValleyService = valley.elec, valley.svc
+	modelCode = uint16(plan.ModelCode)
+	return
 }

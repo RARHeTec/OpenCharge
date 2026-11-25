@@ -9,7 +9,7 @@ func toPlan(r pricePlanRow, segs []PriceSegment) PricePlan {
 		ID: r.ID, TenantID: r.TenantID, StationID: r.StationID,
 		DeviceType: r.DeviceType, EffectiveAt: r.EffectiveAt,
 		EffectiveNow: r.EffectiveNow, Status: r.Status, Source: r.Source,
-		Operator: r.Operator, Note: r.Note, Segments: segs,
+		Operator: r.Operator, Note: r.Note, ModelCode: r.ModelCode, Segments: segs,
 		DeliveredCount: r.DeliveredCount, SuccessCount: r.SuccessCount,
 		CreatedAt: r.CreatedAt,
 	}

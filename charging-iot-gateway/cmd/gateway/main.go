@@ -17,6 +17,7 @@ import (
 
 	"github.com/RARHeTec/OpenCharge/charging-common/heartbeat"
 	"github.com/RARHeTec/OpenCharge/charging-common/lock"
+	"github.com/RARHeTec/OpenCharge/charging-iot-gateway/adapter-yunkuaichong/protocol"
 	ykcserver "github.com/RARHeTec/OpenCharge/charging-iot-gateway/adapter-yunkuaichong/server"
 	"github.com/RARHeTec/OpenCharge/charging-common/money"
 	"github.com/RARHeTec/OpenCharge/charging-common/state"
@@ -68,14 +69,21 @@ func main() {
 	_, telemetryBuffer := openTelemetryStore(*tdengine)
 	defer telemetryBuffer.Close()
 	stateHook := integration.NewStateHook(stateStore, telemetryBuffer, heartbeatStore)
-	bridge := integration.CompositeHandler{stateHook, settlementBridge}
+	// The TCP server must exist before the downlink so it can send 0x58 frames.
+	gw := ykcserver.New(*addr, nil)
+	downlink := integration.NewTariffDownlink(gw, registry, pricePlans, stateStore)
+	bridge := integration.CompositeHandler{stateHook, settlementBridge, downlink}
+	gw.SetHandler(bridge)
+	gw.TariffModelFor = func(deviceID string) (protocol.TariffModel, bool) {
+		return tariffModelFor(context.Background(), deviceID, registry, pricePlans)
+	}
 
 	// Admin HTTP API reads the same stores.
 	mux := http.NewServeMux()
 	api := adminapi.NewAPI(audits, orders, stateStore).
 		WithTariffs(tariffs).WithResolver(settlement).WithRegistry(registry).
 		WithHeartbeats(heartbeatStore).WithPricePlans(pricePlans).
-		WithKeys(parseAdminKeys(*adminKeys))
+		WithDeliverer(downlink).WithKeys(parseAdminKeys(*adminKeys))
 	if *adminKeys != "" {
 		slog.Info("admin API authentication enabled")
 	} else {
@@ -94,7 +102,6 @@ func main() {
 		}
 	}()
 
-	gw := ykcserver.New(*addr, bridge)
 	if err := gw.Start(); err != nil {
 		slog.Error("gateway failed", "err", err)
 		os.Exit(1)
@@ -312,9 +319,37 @@ func seedPricePlans(store storage.PricePlanStore, tenantID, stationID string) {
 		_ = store.Save(ctx, storage.PricePlan{
 			ID: fmt.Sprintf("pp-demo-%d", i+1), TenantID: tenantID, StationID: stationID,
 			DeviceType: dt, EffectiveAt: time.Now(), EffectiveNow: true,
-			Status: "valid", Source: "manual", Operator: "138190",
+			Status: "valid", Source: "manual", Operator: "138190", ModelCode: i + 1,
 			Segments: segs, CreatedAt: time.Now(), DeliveredCount: 1, SuccessCount: 1,
 		})
 	}
 	slog.Info("seeded demo price plans", "station", stationID)
+}
+
+// tariffModelFor resolves a device's active PricePlan into the 0x58 model
+// returned to 0x05 verification and 0x09 model requests from the pile.
+func tariffModelFor(ctx context.Context, deviceID string,
+	reg storage.RegistryStore, plans storage.PricePlanStore) (protocol.TariffModel, bool) {
+	dev, ok, err := reg.GetDevice(ctx, deviceID)
+	if err != nil || !ok {
+		return protocol.TariffModel{}, false
+	}
+	plan, ok, err := plans.Current(ctx, dev.TenantID, dev.StationID, dev.DeviceType)
+	if err != nil || !ok {
+		return protocol.TariffModel{}, false
+	}
+	code, rates, slots, err := storage.PriceToProtocol(plan)
+	if err != nil {
+		return protocol.TariffModel{}, false
+	}
+	return protocol.TariffModel{
+		ModelCode: code,
+		Rates: protocol.TariffRates{
+			SharpElec: uint32(rates.SharpElec), SharpService: uint32(rates.SharpService),
+			PeakElec: uint32(rates.PeakElec), PeakService: uint32(rates.PeakService),
+			FlatElec: uint32(rates.FlatElec), FlatService: uint32(rates.FlatService),
+			ValleyElec: uint32(rates.ValleyElec), ValleyService: uint32(rates.ValleyService),
+		},
+		Slots: slots,
+	}, true
 }

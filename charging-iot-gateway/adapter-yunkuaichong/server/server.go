@@ -21,6 +21,12 @@ type Server struct {
 	ln      net.Listener
 	mu      sync.Mutex
 	conns   map[net.Conn]struct{}
+	// sessionsByDevice lets downlinks target one pile instead of broadcasting
+	// a price to every connected device.
+	sessionsByDevice map[string]*session
+	// TariffModelFor supplies the current 0x58 model for a device id.
+	// Nil means no model configured (legacy behaviour).
+	TariffModelFor func(deviceID string) (protocol.TariffModel, bool)
 	closed  bool
 }
 
@@ -28,7 +34,8 @@ func New(addr string, handler Handler) *Server {
 	if handler == nil {
 		handler = NopHandler{}
 	}
-	return &Server{addr: addr, handler: handler, store: &memStore{}, conns: make(map[net.Conn]struct{})}
+	return &Server{addr: addr, handler: handler, store: &memStore{},
+		conns: make(map[net.Conn]struct{}), sessionsByDevice: make(map[string]*session)}
 }
 
 // Start binds the TCP port and begins accepting connections.
@@ -63,6 +70,9 @@ func (s *Server) Start() error {
 				defer func() {
 					s.mu.Lock()
 					delete(s.conns, conn)
+					if sess.deviceID != "" && s.sessionsByDevice[sess.deviceID] == sess {
+						delete(s.sessionsByDevice, sess.deviceID)
+					}
 					s.mu.Unlock()
 				}()
 				sess.serve()
@@ -70,6 +80,17 @@ func (s *Server) Start() error {
 		}
 	}()
 	return nil
+}
+
+// SetHandler installs the event handler after construction, allowing a
+// downlink component to hold the server before the full handler is assembled.
+func (s *Server) SetHandler(h Handler) {
+	if h == nil {
+		return
+	}
+	s.mu.Lock()
+	s.handler = h
+	s.mu.Unlock()
 }
 
 // Addr returns the actual bound address (useful when port 0 is requested).
@@ -154,14 +175,26 @@ func (s *Server) RemoteStop(deviceID string, gun byte) error {
 
 func (s *Server) broadcast(deviceID string, typ byte, body []byte) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	for c := range s.conns {
-		// Session device ID is not tracked here yet; broadcast to all connected
-		// piles. A production build should key connections by device ID.
-		sess := &session{srv: s, conn: c}
-		sess.send(typ, body)
+	sess := s.sessionsByDevice[deviceID]
+	s.mu.Unlock()
+	if sess == nil {
+		return fmt.Errorf("ykc: device %s is not connected", deviceID)
 	}
+	sess.send(typ, body)
 	return nil
+}
+
+// registerSession indexes a logged-in pile so downlinks can address it.
+func (s *Server) registerSession(deviceID string, sess *session) {
+	s.mu.Lock()
+	s.sessionsByDevice[deviceID] = sess
+	s.mu.Unlock()
+}
+
+// SendTariffModel sends 0x58 to one specific pile. Only call this while the
+// connector is idle: the spec requires tariff updates during idle periods.
+func (s *Server) SendTariffModel(deviceID string, body []byte) error {
+	return s.broadcast(deviceID, protocol.TypeTariffSet, body)
 }
 
 func deviceBCD(id string) []byte {

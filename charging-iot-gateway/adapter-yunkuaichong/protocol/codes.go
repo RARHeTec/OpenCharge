@@ -26,6 +26,10 @@ const (
 	TypeRemoteStop       byte = 0x36 // 远程停机 (down)
 	TypeTransaction      byte = 0x3B // 交易记录 (up)
 	TypeTransactionAck   byte = 0x40 // 交易记录确认 (down)
+	// Tariff model downlink (section 9.5/9.6 of the V1.6 spec).
+	TypeTariffSet     byte = 0x58 // 计费模型设置 (down), 90-byte body
+	TypeTariffSetAck  byte = 0x57 // 计费模型应答 (up), 8-byte body
+
 	TypeBalanceUpdateAck byte = 0x41 // 余额更新应答 (up)
 	TypeBalanceUpdate    byte = 0x42 // 远程账户余额更新 (down)
 )

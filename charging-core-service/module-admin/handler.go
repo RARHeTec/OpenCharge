@@ -26,6 +26,7 @@ type API struct {
 	registry  storage.RegistryStore
 	heartbeats heartbeat.Store
 	pricePlans storage.PricePlanStore
+	deliverer  TariffDeliverer
 }
 
 func NewAPI(store storage.AuditStore, orders storage.OrderStore, states ...state.Store) *API {
@@ -224,6 +225,12 @@ type resolveRequest struct {
 // Resolver is the settlement engine surface needed to close an exception.
 type Resolver interface {
 	ResolveException(ctx context.Context, req billing.ResolveRequest) (billing.ResolveResult, error)
+}
+
+// WithDeliverer attaches the 0x58 tariff downlink capability.
+func (a *API) WithDeliverer(d TariffDeliverer) *API {
+	a.deliverer = d
+	return a
 }
 
 // WithPricePlans attaches the adjustable pricing plan store.

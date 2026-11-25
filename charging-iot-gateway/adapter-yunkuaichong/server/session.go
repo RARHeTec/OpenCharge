@@ -79,6 +79,7 @@ func (s *session) dispatch(traceID string, f protocol.Frame) {
 			return
 		}
 		s.deviceID = login.DeviceID
+		s.srv.registerSession(login.DeviceID, s)
 		e.Type = "BootNotification"
 		e.DeviceID = login.DeviceID
 		e.Payload = login
@@ -147,21 +148,49 @@ func (s *session) dispatch(traceID string, f protocol.Frame) {
 		// High priority: confirm receipt immediately so the pile deletes its local copy.
 		s.send(protocol.TypeTransactionAck, protocol.TransactionAckBody(f.Body[:16], true))
 
+	case protocol.TypeTariffSetAck:
+		device, success, err := protocol.ParseTariffSetAck(f.Body)
+		if err != nil {
+			slog.Warn("bad tariff set ack", "traceId", traceID, "err", err)
+			return
+		}
+		e.Type = "TariffSetAck"
+		e.DeviceID = device
+		e.Payload = success
+		slog.Info("tariff model ack", "traceId", traceID, "device", device, "success", success)
+
 	case protocol.TypeTariffVerify:
-		// Respond "model matches" so the pile does not request a tariff download.
+		// Per spec 6.5/6.6: compare the pile's model number with the platform's.
+		// 0x00 = identical, 0x01 = different (pile will then request the model).
 		if len(f.Body) >= 9 {
+			device := protocol.DecodeBCD(f.Body[:7])
+			pileCode := protocol.FromBCDUint16(f.Body[7], f.Body[8])
+			result := byte(0x00)
+			if model, ok := s.srv.modelFor(device); ok && pileCode != model.ModelCode {
+				result = 0x01
+				slog.Info("tariff model mismatch", "traceId", traceID,
+					"device", device, "pile", pileCode, "platform", model.ModelCode)
+			}
 			body := append([]byte(nil), f.Body[:7]...)
 			body = append(body, f.Body[7:9]...)
-			body = append(body, 0x00) // verification result: consistent
+			body = append(body, result)
 			s.send(protocol.TypeTariffVerifyAck, body)
 		}
 
 	case protocol.TypeTariffRequest:
-		// Empty tariff model response; real tariff delivery is a later phase.
+		// Per spec 6.7/6.8: reply with the complete 90-byte billing model.
 		if len(f.Body) >= 7 {
-			body := append([]byte(nil), f.Body[:7]...)
-			body = append(body, 0x00, 0x00)
-			s.send(protocol.TypeTariffRequestAck, body)
+			device := protocol.DecodeBCD(f.Body[:7])
+			if model, ok := s.srv.modelFor(device); ok {
+				body, err := protocol.BuildTariffSetBody(f.Body[:7], model)
+				if err == nil {
+					s.send(protocol.TypeTariffRequestAck, body)
+					return
+				}
+				slog.Warn("cannot build tariff model", "traceId", traceID, "err", err)
+			}
+			// No model configured: honest failure instead of a silent empty body.
+			slog.Warn("tariff request but no model configured", "traceId", traceID, "device", device)
 		}
 
 	default:
@@ -182,3 +211,10 @@ func hbDeviceBCD(body []byte) []byte {
 // keep time import used for future idle timeout handling
 var _ = time.Second
 var _ = bufio.NewReader
+
+func (s *Server) modelFor(deviceID string) (protocol.TariffModel, bool) {
+	if s.TariffModelFor == nil {
+		return protocol.TariffModel{}, false
+	}
+	return s.TariffModelFor(deviceID)
+}

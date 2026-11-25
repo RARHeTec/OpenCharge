@@ -1,14 +1,22 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/RARHeTec/OpenCharge/charging-common/money"
+	"github.com/RARHeTec/OpenCharge/charging-common/tariff"
 	"github.com/RARHeTec/OpenCharge/charging-core-service/storage"
 )
+
+// TariffDeliverer sends a price plan down to matching online piles.
+type TariffDeliverer interface {
+	Deliver(ctx context.Context, planID string) (tariff.DeliverResult, error)
+}
 
 // RegisterPricePlanRoutes mounts the adjustable pricing endpoints.
 func (a *API) RegisterPricePlanRoutes(mux *http.ServeMux) {
@@ -151,6 +159,10 @@ func (a *API) handlePricePlans(w http.ResponseWriter, r *http.Request) {
 
 		created := make([]storage.PricePlan, 0, len(req.DeviceTypes))
 		for _, dt := range req.DeviceTypes {
+			nextCode := 1
+			if old, ok, err := a.pricePlans.Current(r.Context(), tenant, req.StationID, dt); err == nil && ok {
+				nextCode = old.ModelCode + 1
+			}
 			// Publish atomically per device type: invalidate old, save new.
 			if err := a.pricePlans.InvalidateCurrent(r.Context(), tenant, req.StationID, dt); err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -161,7 +173,7 @@ func (a *API) handlePricePlans(w http.ResponseWriter, r *http.Request) {
 				StationID: req.StationID, DeviceType: dt, EffectiveAt: effAt,
 				EffectiveNow: req.EffectiveNow, Status: "valid", Source: req.Source,
 				Operator: req.Operator, Note: req.Note, Segments: segments,
-				CreatedAt: time.Now(),
+				ModelCode: nextCode, CreatedAt: time.Now(),
 			}
 			if plan.Source == "" {
 				plan.Source = "manual"
@@ -184,14 +196,20 @@ func (a *API) handlePricePlans(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handlePricePlanDetail(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.authorize(w, r); !ok {
+		return
+	}
+	path := r.URL.Path[len("/api/admin/price-plans/"):]
+	// /api/admin/price-plans/{id}/deliver
+	if strings.HasSuffix(path, "/deliver") {
+		a.handleDeliver(w, r, strings.TrimSuffix(path, "/deliver"))
+		return
+	}
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	if _, ok := a.authorize(w, r); !ok {
-		return
-	}
-	id := r.URL.Path[len("/api/admin/price-plans/"):]
+	id := path
 	plan, ok, err := a.pricePlans.Get(r.Context(), id)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -202,4 +220,21 @@ func (a *API) handlePricePlanDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": plan})
+}
+
+func (a *API) handleDeliver(w http.ResponseWriter, r *http.Request, planID string) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if a.deliverer == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "downlink not configured"})
+		return
+	}
+	res, err := a.deliverer.Deliver(r.Context(), planID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
