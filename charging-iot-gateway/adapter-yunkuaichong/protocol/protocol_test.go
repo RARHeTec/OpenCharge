@@ -45,6 +45,8 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 }
 
 func TestEncodeGoldenFrame(t *testing.T) {
+	_ = SetBCDOrder("high")
+	defer SetBCDOrder("")
 	// Build the exact login frame from section 6.1 with our encoder and verify
 	// its CRC against the algorithm, then decode it back. The PDF's printed CRC
 	// values are illustrative placeholders, so we assert structural correctness.

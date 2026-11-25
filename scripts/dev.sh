@@ -18,6 +18,7 @@
 #   ADMIN_API_KEY  default "key-t1"  (dev proxy injects this into the browser's API calls)
 #   PG_DSN         default DSN for the local oc-postgres container
 #   NO_POSTGRES=1  disable PostgreSQL and fall back to in-memory stores
+#   BCD_ORDER      device-id nibble order, default "low" (real piles)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -34,6 +35,7 @@ ADMIN_API_KEY="${ADMIN_API_KEY:-key-t1}"
 PG_CONTAINER="${PG_CONTAINER:-oc-postgres}"
 PG_DSN="${PG_DSN:-postgres://opencharge:opencharge@127.0.0.1:5432/opencharge?sslmode=disable}"
 NO_POSTGRES="${NO_POSTGRES:-0}"
+BCD_ORDER="${BCD_ORDER:-low}"
 
 # curl must bypass any system HTTP proxy when talking to localhost.
 CURL=(curl --noproxy '*' -sS)
@@ -235,7 +237,7 @@ start_all() {
     pg_args=(-dsn "$PG_DSN")
   nohup "$BIN_DIR/gateway" \
     -addr "$TCP_ADDR" -admin "$ADMIN_ADDR" -admin-key "$ADMIN_KEYS" \
-    ${pg_args[@]+"${pg_args[@]}"} ${extra[@]+"${extra[@]}"} >"$LOG_DIR/gateway.log" 2>&1 &
+    -bcd-order "$BCD_ORDER" ${pg_args[@]+"${pg_args[@]}"} ${extra[@]+"${extra[@]}"} >"$LOG_DIR/gateway.log" 2>&1 &
   echo $! >"$PID_DIR/gateway.pid"
 
   echo "==> starting admin UI (:${FRONTEND_PORT})"

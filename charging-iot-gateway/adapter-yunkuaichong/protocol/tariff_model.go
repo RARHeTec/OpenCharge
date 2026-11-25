@@ -102,17 +102,19 @@ func ParseTariffSetAck(body []byte) (device string, success bool, err error) {
 // bcdUint16 packs a decimal code into two BCD bytes, low byte first on wire.
 // Model 1 -> {0x01, 0x00}, model 12 -> {0x12, 0x00}.
 func bcdUint16(v uint16) []byte {
-	lo := byte((v % 10) | ((v / 10 % 10) << 4))
-	hi := byte((v / 100 % 10) | ((v / 1000 % 10) << 4))
-	return []byte{lo, hi}
+	// Model codes use the spec's own layout (low decimal digit in the low
+	// nibble), independent of the device-id BCD order setting.
+	return []byte{
+		byte((v % 10) | ((v / 10 % 10) << 4)),
+		byte((v / 100 % 10) | ((v / 1000 % 10) << 4)),
+	}
 }
 
 func FromBCDUint16(lo, hi byte) uint16 {
 	return fromBCDUint16(lo, hi)
 }
 
-func fromBCDUint16(lo, hi byte) uint16 {
-	n := uint16(lo&0x0F) + uint16((lo>>4)&0x0F)*10
-	n += uint16(hi&0x0F)*100 + uint16((hi>>4)&0x0F)*1000
-	return n
+func fromBCDUint16(b0, b1 byte) uint16 {
+	return uint16(b0&0x0F) + uint16((b0>>4)&0x0F)*10 +
+		uint16(b1&0x0F)*100 + uint16((b1>>4)&0x0F)*1000
 }

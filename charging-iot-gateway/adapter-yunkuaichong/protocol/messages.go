@@ -2,22 +2,6 @@ package protocol
 
 import "encoding/binary"
 
-// BCD decoding: each byte holds two decimal digits (low nibble first per spec
-// convention for BCD-encoded device IDs; sample 55 03 14 12 78 23 05 -> "55031412782305").
-func DecodeBCD(b []byte) string {
-	out := make([]byte, 0, len(b)*2)
-	for _, v := range b {
-		hi, lo := (v>>4)&0x0F, v&0x0F
-		if hi <= 9 {
-			out = append(out, '0'+hi)
-		}
-		if lo <= 9 {
-			out = append(out, '0'+lo)
-		}
-	}
-	return string(out)
-}
-
 // LoginBody parses the 0x01 login frame body.
 type LoginBody struct {
 	DeviceID     string

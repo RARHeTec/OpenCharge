@@ -22,6 +22,7 @@ func main() {
 	minutesAgo := flag.Int("minutes-ago", 0, "charge start time offset in minutes (simulates a delayed offline bill)")
 	listen := flag.Bool("listen", false, "stay online and answer 0x58 tariff downlinks with 0x57")
 	flag.Parse()
+	_ = protocol.SetBCDOrder("high") // simulator follows the spec sample layout
 
 	conn, err := net.Dial("tcp", *addr)
 	if err != nil {

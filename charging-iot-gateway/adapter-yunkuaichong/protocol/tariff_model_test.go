@@ -7,6 +7,8 @@ import (
 )
 
 func TestBuildTariffSetBodyMatchesSpecSample(t *testing.T) {
+	_ = SetBCDOrder("high")
+	defer SetBCDOrder("")
 	// Spec 9.5 sample: device 55031412782305, model 0100, rates and 48 slots.
 	m := TariffModel{
 		ModelCode: 1,
@@ -50,6 +52,8 @@ func TestBuildTariffSetBodyMatchesSpecSample(t *testing.T) {
 }
 
 func TestTariffModelRoundTrip(t *testing.T) {
+	_ = SetBCDOrder("high")
+	defer SetBCDOrder("")
 	m := TariffModel{ModelCode: 12}
 	m.Rates = TariffRates{60000, 18000, 88000, 15000, 119500, 9500, 60000, 18000}
 	m.LossRatio = 2
@@ -79,6 +83,8 @@ func TestTariffModelRoundTrip(t *testing.T) {
 }
 
 func TestTariffSetAckCodec(t *testing.T) {
+	_ = SetBCDOrder("high")
+	defer SetBCDOrder("")
 	dev := []byte{0x55, 0x03, 0x14, 0x12, 0x78, 0x23, 0x05}
 	body := BuildTariffSetAckBody(dev, true)
 	if len(body) != 8 || body[7] != 0x01 {
@@ -96,12 +102,16 @@ func TestTariffSetAckCodec(t *testing.T) {
 }
 
 func TestTariffBodyRejectsShortDevice(t *testing.T) {
+	_ = SetBCDOrder("high")
+	defer SetBCDOrder("")
 	if _, err := BuildTariffSetBody([]byte{1, 2}, TariffModel{}); err == nil {
 		t.Error("expected error for short device BCD")
 	}
 }
 
 func TestDeviceBCDRoundTrip(t *testing.T) {
+	_ = SetBCDOrder("high")
+	defer SetBCDOrder("")
 	const id = "55031412782305"
 	b := DeviceBCD(id)
 	if got := DecodeBCD(b); got != id {

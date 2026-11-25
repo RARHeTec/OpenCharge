@@ -41,7 +41,14 @@ func main() {
 	redisAddr := flag.String("redis", "", "Redis address for real-time connector state; empty = memory")
 	tdengine := flag.String("tdengine", "", "TDengine REST endpoint (http://host:6041); empty = memory")
 	kafkaBroker := flag.String("kafka", "", "Kafka broker host:port; empty = in-process bus")
+	bcdOrder := flag.String("bcd-order", "low", "device-id BCD nibble order: low (real piles) | high (spec sample/simulator)")
 	flag.Parse()
+
+	if err := protocol.SetBCDOrder(*bcdOrder); err != nil {
+		slog.Error("invalid -bcd-order", "err", err)
+		os.Exit(2)
+	}
+	slog.Info("device-id BCD order", "order", *bcdOrder)
 
 	// All admin data lives in these stores. With -dsn they are PostgreSQL
 	// backed; without it everything is in memory and lost on restart.
