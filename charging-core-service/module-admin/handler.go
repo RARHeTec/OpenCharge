@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/RARHeTec/OpenCharge/charging-common/heartbeat"
 	"github.com/RARHeTec/OpenCharge/charging-common/money"
 	"github.com/RARHeTec/OpenCharge/charging-common/state"
 	"github.com/RARHeTec/OpenCharge/charging-common/trace"
@@ -22,7 +23,8 @@ type API struct {
 	tariffs  storage.TariffStore
 	resolver Resolver
 	keys     KeyRegistry
-	registry storage.RegistryStore
+	registry  storage.RegistryStore
+	heartbeats heartbeat.Store
 }
 
 func NewAPI(store storage.AuditStore, orders storage.OrderStore, states ...state.Store) *API {
@@ -49,6 +51,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/admin/connectors", a.handleConnectors)
 	a.RegisterTariffRoutes(mux)
 	a.RegisterRegistryRoutes(mux)
+	a.RegisterHeartbeatRoutes(mux)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -219,6 +222,12 @@ type resolveRequest struct {
 // Resolver is the settlement engine surface needed to close an exception.
 type Resolver interface {
 	ResolveException(ctx context.Context, req billing.ResolveRequest) (billing.ResolveResult, error)
+}
+
+// WithHeartbeats attaches cumulative heartbeat counters for the admin view.
+func (a *API) WithHeartbeats(h heartbeat.Store) *API {
+	a.heartbeats = h
+	return a
 }
 
 // WithRegistry attaches the station/device master-data store.

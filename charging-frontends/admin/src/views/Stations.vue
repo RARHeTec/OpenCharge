@@ -6,6 +6,7 @@ const tenantId = ref('T1')
 const stations = ref([])
 const devices = ref([])
 const liveStates = ref([])
+const heartbeats = ref([])
 const error = ref('')
 const notice = ref('')
 const activeStation = ref('')
@@ -26,14 +27,16 @@ function req(path, opts) {
 async function loadAll() {
   try {
     const q = `?tenantId=${encodeURIComponent(tenantId.value)}`
-    const [s, d, c] = await Promise.all([
+    const [s, d, c, h] = await Promise.all([
       req(`/api/admin/stations${q}`),
       req(`/api/admin/devices${q}`),
       req('/api/admin/connectors').catch(() => ({ data: [] })),
+      req('/api/admin/heartbeats').catch(() => ({ data: [] })),
     ])
     stations.value = s.data || []
     devices.value = d.data || []
     liveStates.value = c.data || []
+    heartbeats.value = h.data || []
     error.value = ''
   } catch (e) {
     error.value = `加载失败：${e.message}`
@@ -81,6 +84,24 @@ const stateMap = computed(() => {
   return m
 })
 
+// Heartbeat counters keyed by device:gun, independent of connector state TTL.
+const heartbeatMap = computed(() => {
+  const m = {}
+  for (const h of heartbeats.value) m[`${h.deviceId}:${h.gunNo}`] = h
+  return m
+})
+
+function timeAgo(t) {
+  if (!t || t.startsWith('0001')) return '—'
+  const ms = Date.now() - new Date(t).getTime()
+  if (ms < 0) return '刚刚'
+  const sec = Math.floor(ms / 1000)
+  if (sec < 60) return `${sec}秒前`
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `${min}分钟前`
+  return `${Math.floor(min / 60)}小时前`
+}
+
 const filteredDevices = computed(() =>
   activeStation.value ? devices.value.filter((d) => d.stationId === activeStation.value) : devices.value
 )
@@ -88,7 +109,11 @@ const filteredDevices = computed(() =>
 function gunsOf(d) {
   const out = []
   for (let g = 1; g <= (d.gunCount || 1); g++) {
-    out.push({ gun: g, st: stateMap.value[`${d.deviceId}:${g}`] })
+    out.push({
+      gun: g,
+      st: stateMap.value[`${d.deviceId}:${g}`],
+      hb: heartbeatMap.value[`${d.deviceId}:${g}`],
+    })
   }
   return out
 }
@@ -145,16 +170,21 @@ onMounted(loadAll)
       <div class="panel">
         <h3>设备（{{ filteredDevices.length }}）<span v-if="activeStation" class="dim">· 场站 {{ activeStation }}</span></h3>
         <table class="mini">
-          <thead><tr><th>设备号</th><th>场站</th><th>协议</th><th>枪</th><th>实时状态</th></tr></thead>
+          <thead><tr><th>设备号</th><th>场站</th><th>协议</th><th>枪 / 心跳</th><th>默认用户</th></tr></thead>
           <tbody>
             <tr v-for="d in filteredDevices" :key="d.deviceId">
               <td class="mono">{{ d.deviceId }}</td>
               <td class="dim">{{ d.stationId }}</td>
               <td class="dim">{{ d.protocol }}</td>
               <td>
-                <span v-for="g in gunsOf(d)" :key="g.gun" class="gun" :class="statusClass(g.st)">
-                  {{ g.gun }}·{{ statusText[statusClass(g.st)] }}
-                </span>
+                <div v-for="g in gunsOf(d)" :key="g.gun" class="gun-row">
+                  <span class="gun" :class="statusClass(g.st)">
+                    {{ g.gun }}·{{ statusText[statusClass(g.st)] }}
+                  </span>
+                  <span class="hb" :title="g.hb ? `最近心跳 ${timeAgo(g.hb.lastHeartbeat)}` : '尚未收到心跳'">
+                    ♥ {{ g.hb?.count ?? 0 }}<span v-if="g.hb?.faultCount" class="fault"> / 故障 {{ g.hb.faultCount }}</span>
+                  </span>
+                </div>
               </td>
               <td class="dim">{{ d.defaultUserId || '—' }}</td>
             </tr>
@@ -197,6 +227,9 @@ table.mini tbody tr:not(.sel):hover { background: #fafbfc; cursor: pointer; }
 .form input.narrow { width: 80px; }
 button { padding: 6px 14px; background: #1677ff; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
 button:disabled { opacity: .45; cursor: not-allowed; }
+.gun-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.hb { font-size: 11px; color: #86909c; font-variant-numeric: tabular-nums; }
+.fault { color: #f53f3f; }
 .gun { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px; margin-right: 5px; background: #f2f3f5; color: #4e5969; }
 .gun.charging { background: #e8f7ee; color: #00a870; }
 .gun.idle { background: #f2f3f5; color: #4e5969; }

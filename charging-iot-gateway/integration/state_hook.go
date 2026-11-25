@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/RARHeTec/OpenCharge/charging-common/heartbeat"
 	"github.com/RARHeTec/OpenCharge/charging-common/state"
 	"github.com/RARHeTec/OpenCharge/charging-iot-gateway/telemetry"
 	"github.com/RARHeTec/OpenCharge/charging-iot-gateway/adapter-yunkuaichong/protocol"
@@ -16,12 +17,20 @@ import (
 type StateHook struct {
 	store     state.Store
 	telemetry *telemetry.Buffer
+	heartbeat heartbeat.Store
 }
 
-func NewStateHook(store state.Store, buffers ...*telemetry.Buffer) *StateHook {
+// NewStateHook accepts optional telemetry buffer and heartbeat store so the
+// existing constructor call sites keep working while both concerns are added.
+func NewStateHook(store state.Store, opts ...any) *StateHook {
 	h := &StateHook{store: store}
-	if len(buffers) > 0 {
-		h.telemetry = buffers[0]
+	for _, opt := range opts {
+		switch v := opt.(type) {
+		case *telemetry.Buffer:
+			h.telemetry = v
+		case heartbeat.Store:
+			h.heartbeat = v
+		}
 	}
 	return h
 }
@@ -45,6 +54,9 @@ func (h *StateHook) OnEvent(e ykcserver.Event) {
 
 	case "Heartbeat":
 		if b, ok := e.Payload.(protocol.HeartbeatBody); ok {
+			if h.heartbeat != nil {
+				_ = h.heartbeat.Record(ctx, e.DeviceID, int(b.GunNo), b.Status == 1, now)
+			}
 			st := "idle"
 			if b.Status == 1 {
 				st = "faulted"

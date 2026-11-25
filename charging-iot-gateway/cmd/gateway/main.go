@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/RARHeTec/OpenCharge/charging-common/heartbeat"
 	"github.com/RARHeTec/OpenCharge/charging-common/lock"
 	ykcserver "github.com/RARHeTec/OpenCharge/charging-iot-gateway/adapter-yunkuaichong/server"
 	"github.com/RARHeTec/OpenCharge/charging-common/money"
@@ -60,16 +61,17 @@ func main() {
 		Resolver:        registryResolver{store: registry},
 	})
 	stateStore := openStateStore(*redisAddr)
+	heartbeatStore := openHeartbeatStore(*redisAddr)
 	_, telemetryBuffer := openTelemetryStore(*tdengine)
 	defer telemetryBuffer.Close()
-	stateHook := integration.NewStateHook(stateStore, telemetryBuffer)
+	stateHook := integration.NewStateHook(stateStore, telemetryBuffer, heartbeatStore)
 	bridge := integration.CompositeHandler{stateHook, settlementBridge}
 
 	// Admin HTTP API reads the same stores.
 	mux := http.NewServeMux()
 	api := adminapi.NewAPI(audits, orders, stateStore).
 		WithTariffs(tariffs).WithResolver(settlement).WithRegistry(registry).
-		WithKeys(parseAdminKeys(*adminKeys))
+		WithHeartbeats(heartbeatStore).WithKeys(parseAdminKeys(*adminKeys))
 	if *adminKeys != "" {
 		slog.Info("admin API authentication enabled")
 	} else {
@@ -254,4 +256,19 @@ func seedRegistry(reg storage.RegistryStore, tenantID, stationID, userID string)
 		})
 	}
 	slog.Info("seeded demo station and devices", "station", stationID, "tenant", tenantID)
+}
+
+// openHeartbeatStore shares the Redis connection with connector state when
+// configured; counters live in their own hash keys with no TTL.
+func openHeartbeatStore(addr string) heartbeat.Store {
+	if addr == "" {
+		return heartbeat.NewMemoryStore()
+	}
+	rdb := state.NewRedisClient(addr)
+	if err := rdb.Ping(context.Background()).Err(); err != nil {
+		slog.Warn("Redis unreachable for heartbeats, using memory", "err", err)
+		return heartbeat.NewMemoryStore()
+	}
+	slog.Info("using Redis heartbeat counters", "addr", addr)
+	return heartbeat.NewRedisStore(rdb)
 }
