@@ -72,3 +72,13 @@ scripts/dev.sh stop               # 全部停止
 ## 许可证
 
 Apache License 2.0 — 允许商用、修改、分发，需保留署名与 NOTICE。详见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)。
+
+### 数据持久化
+
+`start` 默认启动独立的 PostgreSQL 容器 `oc-postgres`（数据卷保留），并把 DSN 传给网关——管理端新增的场站、设备、定价、订单等都会落库，重启服务不丢。
+
+```bash
+NO_POSTGRES=1 scripts/dev.sh start   # 仅本地演示：使用内存存储，重启即丢
+```
+
+HOME 目录下 TeslaMate 等其它项目的 postgres 容器不会被复用。

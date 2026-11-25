@@ -15,7 +15,7 @@ import (
 func TestTariffVerifyAndRequest(t *testing.T) {
 	const device = "55031412782305"
 	model := protocol.TariffModel{ModelCode: 7}
-	model.Rates = protocol.TariffRates{60000, 18000, 88000, 15000, 119500, 9500, 60000, 18000}
+	model.Rates = protocol.TariffRates{SharpElec: 60000, SharpService: 18000, PeakElec: 88000, PeakService: 15000, FlatElec: 119500, FlatService: 9500, ValleyElec: 60000, ValleyService: 18000}
 	model.Slots[0] = 3
 
 	srv := New("127.0.0.1:0", NopHandler{})

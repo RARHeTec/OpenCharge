@@ -30,6 +30,7 @@ type createDeviceRequest struct {
 	TenantID      string `json:"tenantId"`
 	StationID     string `json:"stationId"`
 	Protocol      string `json:"protocol"`
+	DeviceType    string `json:"deviceType"`
 	DefaultUserID string `json:"defaultUserId"`
 	GunCount      int    `json:"gunCount"`
 }
@@ -137,7 +138,8 @@ func (a *API) handleDevices(w http.ResponseWriter, r *http.Request) {
 		}
 		d := storage.Device{
 			DeviceID: req.DeviceID, TenantID: tenant, StationID: req.StationID,
-			Protocol: proto, DefaultUserID: req.DefaultUserID, GunCount: req.GunCount,
+			Protocol: proto, DeviceType: req.DeviceType,
+			DefaultUserID: req.DefaultUserID, GunCount: req.GunCount,
 		}
 		if err := a.registry.SaveDevice(r.Context(), d); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

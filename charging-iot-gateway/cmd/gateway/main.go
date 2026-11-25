@@ -33,6 +33,7 @@ func main() {
 	addr := flag.String("addr", ":8768", "TCP listen address for charging piles")
 	adminAddr := flag.String("admin", ":8081", "admin HTTP API address")
 	adminKeys := flag.String("admin-key", "", "comma-separated keyId:tenantId pairs; empty disables auth (dev only)")
+	dsn := flag.String("dsn", "", "PostgreSQL DSN; empty = in-memory demo mode (data lost on restart)")
 	tenantID := flag.String("tenant", "T1", "tenant id for demo bills")
 	stationID := flag.String("station", "S1", "station id for demo bills")
 	userID := flag.String("user", "U1", "wallet user id for demo bills")
@@ -42,16 +43,10 @@ func main() {
 	kafkaBroker := flag.String("kafka", "", "Kafka broker host:port; empty = in-process bus")
 	flag.Parse()
 
-	// Shared in-memory stores (single process -> admin sees settlements live).
-	orders := storage.NewMemoryOrderStore()
-	tariffs := storage.NewMemoryTariffStore()
-	wallets := storage.NewMemoryWalletStore()
-	audits := storage.NewMemoryAuditStore()
-	registry := storage.NewMemoryRegistryStore()
-	pricePlans := storage.NewMemoryPricePlanStore()
-	seed(tariffs, wallets)
-	seedRegistry(registry, *tenantID, *stationID, *userID)
-	seedPricePlans(pricePlans, *tenantID, *stationID)
+	// All admin data lives in these stores. With -dsn they are PostgreSQL
+	// backed; without it everything is in memory and lost on restart.
+	orders, tariffs, wallets, audits, registry, pricePlans := openStores(
+		*dsn, *tenantID, *stationID, *userID)
 
 	settlement := billing.NewSettlementService(orders, tariffs, wallets, audits)
 	eventBus := openBus(*kafkaBroker)
@@ -352,4 +347,46 @@ func tariffModelFor(ctx context.Context, deviceID string,
 		},
 		Slots: slots,
 	}, true
+}
+
+// openStores picks PostgreSQL when a DSN is supplied, otherwise the verified
+// in-memory demo stores. Seeds are applied only to the in-memory mode so a
+// real database keeps whatever the operator configured through the admin API.
+func openStores(dsn, tenantID, stationID, userID string) (
+	storage.OrderStore, storage.TariffStore, storage.WalletStore,
+	storage.AuditStore, storage.RegistryStore, storage.PricePlanStore) {
+	if dsn != "" {
+		pg, err := storage.OpenPostgres(dsn)
+		if err != nil {
+			slog.Error("postgres unavailable", "err", err)
+			os.Exit(1)
+		}
+		if err := pg.AutoMigrate(); err != nil {
+			slog.Error("auto migrate failed", "err", err)
+			os.Exit(1)
+		}
+		slog.Info("using PostgreSQL stores", "dsn", maskDSN(dsn))
+		return &storage.PGOrderStore{S: pg}, &storage.PGTariffStore{S: pg},
+			&storage.PGWalletStore{S: pg}, &storage.PGAuditStore{S: pg},
+			&storage.PGRegistryStore{S: pg}, &storage.PGPricePlanStore{S: pg}
+	}
+
+	orders := storage.NewMemoryOrderStore()
+	tariffs := storage.NewMemoryTariffStore()
+	wallets := storage.NewMemoryWalletStore()
+	audits := storage.NewMemoryAuditStore()
+	registry := storage.NewMemoryRegistryStore()
+	pricePlans := storage.NewMemoryPricePlanStore()
+	seed(tariffs, wallets)
+	seedRegistry(registry, tenantID, stationID, userID)
+	seedPricePlans(pricePlans, tenantID, stationID)
+	slog.Warn("using in-memory stores (no -dsn); admin data is lost on restart")
+	return orders, tariffs, wallets, audits, registry, pricePlans
+}
+
+func maskDSN(dsn string) string {
+	if i := strings.LastIndex(dsn, "@"); i >= 0 && i+1 < len(dsn) {
+		return "***@" + dsn[i+1:]
+	}
+	return dsn
 }

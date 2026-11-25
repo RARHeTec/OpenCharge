@@ -3,6 +3,7 @@
 #
 #   scripts/dev.sh start              build + start gateway (TCP+admin) and admin UI
 #   scripts/dev.sh start --middleware also start Redis/TDengine/Kafka via Docker
+#   PostgreSQL is started by default so admin data survives restarts.
 #   scripts/dev.sh stop               stop everything this script started
 #   scripts/dev.sh restart            stop + start
 #   scripts/dev.sh status             show what is running
@@ -15,6 +16,8 @@
 #   ADMIN_ADDR     default ":8081"   (admin REST API)
 #   FRONTEND_PORT  default "5173"
 #   ADMIN_API_KEY  default "key-t1"  (dev proxy injects this into the browser's API calls)
+#   PG_DSN         default DSN for the local oc-postgres container
+#   NO_POSTGRES=1  disable PostgreSQL and fall back to in-memory stores
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -28,6 +31,9 @@ TCP_ADDR="${TCP_ADDR:-:8768}"
 ADMIN_ADDR="${ADMIN_ADDR:-:8081}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 ADMIN_API_KEY="${ADMIN_API_KEY:-key-t1}"
+PG_CONTAINER="${PG_CONTAINER:-oc-postgres}"
+PG_DSN="${PG_DSN:-postgres://opencharge:opencharge@127.0.0.1:5432/opencharge?sslmode=disable}"
+NO_POSTGRES="${NO_POSTGRES:-0}"
 
 # curl must bypass any system HTTP proxy when talking to localhost.
 CURL=(curl --noproxy '*' -sS)
@@ -117,6 +123,34 @@ ensure_native_bindings() {
   (cd "$admin" && git checkout -- package.json package-lock.json 2>/dev/null) || true
 }
 
+start_postgres() {
+  [ "$NO_POSTGRES" = 1 ] && { echo "  [skip] PostgreSQL disabled (NO_POSTGRES=1, data will not persist)"; return 0; }
+  if ! docker info >/dev/null 2>&1; then
+    echo "  [warn] docker unavailable; using in-memory stores (data will not persist)" >&2
+    return 0
+  fi
+  if ! docker ps -a --format '{{.Names}}' | grep -qx "$PG_CONTAINER"; then
+    echo "  [pg] creating $PG_CONTAINER"
+    docker run -d --name "$PG_CONTAINER" \
+      -e POSTGRES_DB=opencharge -e POSTGRES_USER=opencharge -e POSTGRES_PASSWORD=opencharge \
+      -p 5432:5432 postgres:16-alpine >/dev/null 2>&1 || {
+        echo "  [warn] could not start PostgreSQL; falling back to memory" >&2
+        return 0
+      }
+  fi
+  docker start "$PG_CONTAINER" >/dev/null 2>&1 || true
+  # Wait for the database to actually accept connections before the gateway
+  # tries to migrate; a sleep alone is not enough on first boot.
+  for _ in $(seq 1 40); do
+    if docker exec "$PG_CONTAINER" pg_isready -U opencharge -d opencharge >/dev/null 2>&1; then
+      echo "  [ok] PostgreSQL ready at 127.0.0.1:5432"
+      return 0
+    fi
+    sleep 0.5
+  done
+  echo "  [warn] PostgreSQL not ready; falling back to in-memory stores" >&2
+}
+
 start_middleware() {
   echo "==> starting optional middleware (Redis :16379, TDengine :16041, Kafka :19092)"
   # Redis is light and verified; TDengine/Kafka can be memory-limited on some
@@ -183,6 +217,7 @@ start_all() {
     exit 1
   fi
 
+  start_postgres
   build_all
   [ "$with_middleware" = 1 ] && start_middleware
 
@@ -195,9 +230,12 @@ start_all() {
   fi
   # Bash 3.2 (macOS default) treats an empty array under `set -u` as unbound;
   # the +"${...}" form expands to nothing when the array has no entries.
+  local pg_args=()
+  [ "$NO_POSTGRES" != 1 ] && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$PG_CONTAINER" && \
+    pg_args=(-dsn "$PG_DSN")
   nohup "$BIN_DIR/gateway" \
     -addr "$TCP_ADDR" -admin "$ADMIN_ADDR" -admin-key "$ADMIN_KEYS" \
-    ${extra[@]+"${extra[@]}"} >"$LOG_DIR/gateway.log" 2>&1 &
+    ${pg_args[@]+"${pg_args[@]}"} ${extra[@]+"${extra[@]}"} >"$LOG_DIR/gateway.log" 2>&1 &
   echo $! >"$PID_DIR/gateway.pid"
 
   echo "==> starting admin UI (:${FRONTEND_PORT})"
@@ -266,6 +304,13 @@ show_status() {
       printf "  %-10s stopped\n" "$name"
     fi
   done
+  if [ "$NO_POSTGRES" = 1 ]; then
+    printf "  %-10s disabled\n" "postgres"
+  elif docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$PG_CONTAINER"; then
+    printf "  %-10s RUNNING (data persisted in %s)\n" "postgres" "$PG_CONTAINER"
+  else
+    printf "  %-10s stopped (gateway falls back to memory)\n" "postgres"
+  fi
   echo
   echo "  ports:"
   for p in "${TCP_ADDR#:}" "${ADMIN_ADDR#:}" "${FRONTEND_PORT}"; do
