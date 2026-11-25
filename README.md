@@ -55,7 +55,7 @@ scripts/dev.sh stop               # 全部停止
 
 默认使用已验证的内存实现（无需 Docker）。`--middleware` 开启真实中间件；任一中间件不可用会自动回退到内存。可用 `ADMIN_KEYS`、`TCP_ADDR`、`ADMIN_ADDR`、`FRONTEND_PORT` 环境变量覆盖默认配置。
 
-> 在 Apple Silicon 上，系统 node 常以 Rosetta/x64 运行，而 npm 装的是 arm64 原生依赖，vite 会报 `Cannot find module @rollup/rollup-darwin-*`。脚本会自动挑选与本机架构一致且已安装依赖匹配的 node。若前端仍无法启动，在 `charging-frontends/admin` 下删除 `node_modules` 与 `package-lock.json` 后重新 `npm install`。
+> **Apple Silicon 架构坑**：系统 node 常以 Rosetta/x64 运行，而 npm 只装了 arm64 原生模块（`@rollup/rollup-darwin-*`、`@esbuild/darwin-*`），vite 会崩并报 `Cannot find module ...-darwin-x64`。`start` 会自动补齐两套原生 binding，并挑选架构匹配的 node——所以无论用脚本还是手动 `npm run dev` 都能启动。二进制只在源码变更时重新编译，`sim` 没改就不会重复构建。
 
 详见 [docs/architecture.md](docs/architecture.md)、[docs/billing-closed-loop.md](docs/billing-closed-loop.md) 与 [charging-deploy/README.md](charging-deploy/README.md)。
 

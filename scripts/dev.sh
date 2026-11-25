@@ -59,14 +59,62 @@ wait_http() {
   return 1
 }
 
+# Rebuild a binary only when a source file is newer than the existing one.
+# The simulator rarely changes, so recompiling it on every start is pure waste.
+build_if_stale() {
+  local name="$1" pkg="$2" bin="$BIN_DIR/$1"
+  local needs_build=0
+  if [ ! -x "$bin" ]; then
+    needs_build=1
+  else
+    # Any .go file under the module newer than the binary triggers a rebuild.
+    local newer
+    newer="$(find "$ROOT/charging-iot-gateway" -name '*.go' -newer "$bin" -print -quit 2>/dev/null || true)"
+    [ -n "$newer" ] && needs_build=1
+  fi
+  if [ "$needs_build" = 1 ]; then
+    echo "  [build] $name"
+    (cd "$ROOT/charging-iot-gateway" && CGO_ENABLED=0 go build -o "$bin" "$pkg")
+  else
+    echo "  [skip]  $name (up to date)"
+  fi
+}
+
 build_all() {
-  echo "==> building gateway and simulator"
-  (
-    cd "$ROOT/charging-iot-gateway"
-    CGO_ENABLED=0 go build -o "$BIN_DIR/gateway" ./cmd/gateway
-    CGO_ENABLED=0 go build -o "$BIN_DIR/sim" ./device-simulator/ykc
-  )
-  echo "  [ok] binaries in $BIN_DIR"
+  echo "==> checking binaries"
+  build_if_stale gateway ./cmd/gateway
+  build_if_stale sim ./device-simulator/ykc
+}
+
+# npm's optional-dependency bug (npm/cli#4828) can leave only one darwin
+# rollup binding installed. When the system node runs under Rosetta (x64)
+# while the managed node is arm64, vite crashes with
+# "Cannot find module @rollup/rollup-darwin-*". Install whichever binding is
+# missing so either node can start vite; --force bypasses npm's os/cpu guard.
+ensure_native_bindings() {
+  local admin="$ROOT/charging-frontends/admin"
+  local arch pkg ver p
+  # Both rollup and esbuild ship native darwin binaries per architecture.
+  # Install whichever is missing so vite works under either the managed arm64
+  # node or the system x64 node (Rosetta), no matter how it was launched.
+  for arch in x64 arm64; do
+    for pkg in rollup esbuild; do
+      if [ "$pkg" = "rollup" ]; then
+        bind_pkg="rollup-darwin-$arch"
+      else
+        bind_pkg="darwin-$arch"
+      fi
+      p="$admin/node_modules/@$pkg/$bind_pkg"
+      [ -d "$p" ] && continue
+      ver="$(NODE_PATH="$admin/node_modules" "$NODE_BIN" -p "require('$pkg/package.json').version" 2>/dev/null || true)"
+      [ -z "$ver" ] && continue
+      echo "  [fix] installing @$pkg/$bind_pkg@$ver"
+      (cd "$admin" && npm install --no-save --force --no-audit --no-fund "@$pkg/$bind_pkg@$ver" >/dev/null 2>&1) || \
+        echo "  [warn] could not install $pkg $arch binding"
+    done
+  done
+  # --no-save/--force can still touch manifests on some npm versions.
+  (cd "$admin" && git checkout -- package.json package-lock.json 2>/dev/null) || true
 }
 
 start_middleware() {
@@ -154,6 +202,7 @@ start_all() {
 
   echo "==> starting admin UI (:${FRONTEND_PORT})"
   resolve_node
+  ensure_native_bindings
   (
     cd "$ROOT/charging-frontends/admin"
     ADMIN_API_KEY="$ADMIN_API_KEY" \
