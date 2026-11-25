@@ -267,3 +267,15 @@ curl http://localhost:8081/api/admin/exceptions
 **限制**：字节序是网关级配置，同一实例不能混用两种桩型；需要分开进程，各配一个 `-bcd-order`。
 
 **验证**：集成测试用真实桩字节 `55 30 41 21 87 32 10` 登录并报心跳，两条事件都解析为 `55031412782301`；协议样例的 high-first 测试保持通过。
+
+---
+
+## 占位状态（已插枪未充电，2026-11-25）
+
+用户提供的真实 0x13 报文显示：插枪/拔枪时 `State` 字段始终是 2（空闲），只有 `Plugged` 字段在 1/0 间变化，原先 StateHook 只看 `State`，所以插着枪也显示「空闲」，运营无法判断车是否占位。
+
+**映射**：`connectorStatus(reported, plugged)` 在 `State=2` 且 `Plugged=1` 时返回 `occupied`（占位/已插枪）；`State=2` 且 `Plugged=0` 返回 `idle`。充电/故障/离线优先级更高，即使插枪也分别显示充电中/故障/离线。
+
+**前端**：场站设备页新增 `占位(已插枪)` 状态文本与琥珀色样式。
+
+**验证**：端到端测试用 `RealtimeBody{State:2, Plugged:1}` 驱动 StateHook，admin 状态变 `occupied`；`Plugged:0` 变回 `idle`；`State:3, Plugged:1` 仍显示 `charging`。

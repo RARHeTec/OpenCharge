@@ -123,7 +123,7 @@ function statusClass(st) {
   return st.status || 'unknown'
 }
 
-const statusText = { charging: '充电中', idle: '空闲', offline: '离线', faulted: '故障', unknown: '未上报' }
+const statusText = { charging: '充电中', occupied: '占位(已插枪)', idle: '空闲', offline: '离线', faulted: '故障', unknown: '未上报' }
 
 onMounted(loadAll)
 </script>
@@ -233,6 +233,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .gun { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px; margin-right: 5px; background: #f2f3f5; color: #4e5969; }
 .gun.charging { background: #e8f7ee; color: #00a870; }
 .gun.idle { background: #f2f3f5; color: #4e5969; }
+.gun.occupied { background: #fff7e8; color: #b35c00; }
 .gun.faulted { background: #ffece8; color: #f53f3f; }
 .gun.offline, .gun.unknown { background: #fff7e8; color: #d25f00; }
 .mono { font-family: ui-monospace, monospace; }

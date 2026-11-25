@@ -75,7 +75,7 @@ func (h *StateHook) OnEvent(e ykcserver.Event) {
 					EnergyWh: int64(b.EnergyUnits),
 				})
 			}
-			status := map[byte]string{0: "offline", 1: "faulted", 2: "idle", 3: "charging"}[b.State]
+			status := connectorStatus(b.State, b.Plugged)
 			_ = h.store.Update(ctx, state.ConnectorState{
 				DeviceID: e.DeviceID, GunNo: int(b.GunNo), Status: status,
 				TransactionID: b.TransactionID, EnergyWh: int64(b.EnergyUnits),
@@ -98,4 +98,26 @@ func (h *StateHook) OnEvent(e ykcserver.Event) {
 	}
 
 	slog.Debug("connector state updated", "traceId", e.TraceID, "type", e.Type)
+}
+
+// connectorStatus maps a 0x13 realtime report to the admin-facing status.
+// Charging/fault/offline take priority; a healthy idle gun with the connector
+// inserted is "occupied" (占位) so operators can see a car is parked even
+// though no transaction is running. The client's 插枪/归位 flags drive this.
+func connectorStatus(reported byte, plugged byte) string {
+	switch reported {
+	case 0:
+		return "offline"
+	case 1:
+		return "faulted"
+	case 3:
+		return "charging"
+	case 2:
+		if plugged == 1 {
+			return "occupied"
+		}
+		return "idle"
+	default:
+		return "offline"
+	}
 }
