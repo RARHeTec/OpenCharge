@@ -66,7 +66,8 @@ func main() {
 		Location:        time.Local,
 		Resolver:        registryResolver{store: registry},
 	})
-	stateStore := openStateStore(*redisAddr)
+	stateHub := state.NewHub()
+	stateStore := state.NewNotifyingStore(openStateStore(*redisAddr), stateHub)
 	heartbeatStore := openHeartbeatStore(*redisAddr)
 	_, telemetryBuffer := openTelemetryStore(*tdengine)
 	defer telemetryBuffer.Close()
@@ -85,7 +86,7 @@ func main() {
 	api := adminapi.NewAPI(audits, orders, stateStore).
 		WithTariffs(tariffs).WithResolver(settlement).WithRegistry(registry).
 		WithHeartbeats(heartbeatStore).WithPricePlans(pricePlans).
-		WithDeliverer(downlink).WithKeys(parseAdminKeys(*adminKeys))
+		WithDeliverer(downlink).WithStateHub(stateHub).WithKeys(parseAdminKeys(*adminKeys))
 	if *adminKeys != "" {
 		slog.Info("admin API authentication enabled")
 	} else {

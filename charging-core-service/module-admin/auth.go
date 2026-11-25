@@ -95,6 +95,11 @@ func apiKeyFrom(r *http.Request) string {
 	if len(auth) > 7 && strings.EqualFold(auth[:7], "bearer ") {
 		return strings.TrimSpace(auth[7:])
 	}
+	// EventSource cannot set custom headers, so SSE clients pass the key as
+	// a query parameter. Header forms remain preferred for normal API calls.
+	if k := strings.TrimSpace(r.URL.Query().Get("api_key")); k != "" {
+		return k
+	}
 	return ""
 }
 

@@ -27,6 +27,7 @@ type API struct {
 	heartbeats heartbeat.Store
 	pricePlans storage.PricePlanStore
 	deliverer  TariffDeliverer
+	stateHub   *state.Hub
 }
 
 func NewAPI(store storage.AuditStore, orders storage.OrderStore, states ...state.Store) *API {
@@ -55,6 +56,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	a.RegisterRegistryRoutes(mux)
 	a.RegisterHeartbeatRoutes(mux)
 	a.RegisterPricePlanRoutes(mux)
+	a.RegisterSSE(mux)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

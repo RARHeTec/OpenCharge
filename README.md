@@ -82,3 +82,13 @@ NO_POSTGRES=1 scripts/dev.sh start   # 仅本地演示：使用内存存储，�
 ```
 
 HOME 目录下 TeslaMate 等其它项目的 postgres 容器不会被复用。
+
+### 实时设备状态
+
+后台「场站设备」页通过 SSE 实时显示桩状态，无需手动刷新：
+
+- 桩上报 0x03 心跳 / 0x13 实时数据 → 状态写入 Redis → 广播给所有订阅的浏览器
+- 页面右上角显示「● 实时 / ○ 连接中 / ○ 已断开」，断线自动重连
+- 状态存 Redis（TTL 5 分钟），网关重启不丢、多实例共享
+
+接口：`GET /api/admin/connector-events`（SSE，鉴权支持 `X-API-Key` / Bearer / `?api_key=`）。

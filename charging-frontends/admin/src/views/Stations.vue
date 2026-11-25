@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps({ apiBase: String })
 const tenantId = ref('T1')
@@ -10,6 +10,7 @@ const heartbeats = ref([])
 const error = ref('')
 const notice = ref('')
 const activeStation = ref('')
+const streamStatus = ref('connecting') // connecting | live | offline
 
 // new station form
 const stForm = ref({ id: '', name: '', timezone: 'Asia/Shanghai' })
@@ -125,7 +126,37 @@ function statusClass(st) {
 
 const statusText = { charging: '充电中', occupied: '占位(已插枪)', idle: '空闲', offline: '离线', faulted: '故障', unknown: '未上报' }
 
-onMounted(loadAll)
+// Live connector status via SSE. The dev proxy injects the API key, so the
+// browser stays same-origin; EventSource reconnects automatically on drop.
+let eventSource = null
+function connectStream() {
+  if (typeof EventSource === 'undefined') return
+  try {
+    eventSource = new EventSource(`${props.apiBase}/api/admin/connector-events`)
+    eventSource.onopen = () => { streamStatus.value = 'live' }
+    eventSource.onerror = () => { streamStatus.value = 'offline' } // auto-retry by EventSource
+    eventSource.addEventListener('status', (ev) => {
+      let msg
+      try { msg = JSON.parse(ev.data) } catch { return }
+      const c = msg.connector
+      if (!c || !c.deviceId) return
+      const idx = liveStates.value.findIndex(
+        (s) => s.deviceId === c.deviceId && s.gunNo === c.gunNo)
+      if (idx >= 0) liveStates.value[idx] = c
+      else liveStates.value.push(c)
+    })
+  } catch {
+    streamStatus.value = 'offline'
+  }
+}
+
+onMounted(() => {
+  loadAll()
+  connectStream()
+})
+onUnmounted(() => {
+  if (eventSource) eventSource.close()
+})
 </script>
 
 <template>
@@ -137,6 +168,7 @@ onMounted(loadAll)
 
     <div class="toolbar">
       <label>租户 <input v-model="tenantId" @change="loadAll" /></label>
+      <span class="stream" :class="streamStatus">{{ streamStatus === 'live' ? '● 实时' : streamStatus === 'connecting' ? '○ 连接中' : '○ 已断开' }}</span>
       <button @click="loadAll">刷新</button>
       <span class="count">{{ stations.length }} 个场站 · {{ devices.length }} 台设备</span>
     </div>

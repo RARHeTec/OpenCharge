@@ -3,7 +3,8 @@
 #
 #   scripts/dev.sh start              build + start gateway (TCP+admin) and admin UI
 #   scripts/dev.sh start --middleware also start Redis/TDengine/Kafka via Docker
-#   PostgreSQL is started by default so admin data survives restarts.
+#   PostgreSQL and Redis are started by default so admin data and connector
+#   state survive restarts and SSE works across gateway instances.
 #   scripts/dev.sh stop               stop everything this script started
 #   scripts/dev.sh restart            stop + start
 #   scripts/dev.sh status             show what is running
@@ -19,6 +20,7 @@
 #   PG_DSN         default DSN for the local oc-postgres container
 #   NO_POSTGRES=1  disable PostgreSQL and fall back to in-memory stores
 #   BCD_ORDER      device-id nibble order, default "low" (real piles)
+#   REDIS_ADDR     default 127.0.0.1:16379 (set empty to use memory)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -36,6 +38,7 @@ PG_CONTAINER="${PG_CONTAINER:-oc-postgres}"
 PG_DSN="${PG_DSN:-postgres://opencharge:opencharge@127.0.0.1:5432/opencharge?sslmode=disable}"
 NO_POSTGRES="${NO_POSTGRES:-0}"
 BCD_ORDER="${BCD_ORDER:-low}"
+REDIS_ADDR="${REDIS_ADDR:-127.0.0.1:16379}"
 
 # curl must bypass any system HTTP proxy when talking to localhost.
 CURL=(curl --noproxy '*' -sS)
@@ -153,6 +156,30 @@ start_postgres() {
   echo "  [warn] PostgreSQL not ready; falling back to in-memory stores" >&2
 }
 
+start_redis() {
+  [ -z "$REDIS_ADDR" ] && { echo "  [skip] Redis disabled (state kept in memory)"; return 0; }
+  if ! docker info >/dev/null 2>&1; then
+    echo "  [warn] docker unavailable; connector state will be in memory" >&2
+    return 0
+  fi
+  if ! docker ps -a --format '{{.Names}}' | grep -qx oc-redis; then
+    echo "  [redis] creating oc-redis"
+    docker run -d --name oc-redis -p 16379:6379 redis:7-alpine --appendonly yes >/dev/null 2>&1 || {
+      echo "  [warn] could not start Redis" >&2
+      return 0
+    }
+  fi
+  docker start oc-redis >/dev/null 2>&1 || true
+  for _ in $(seq 1 20); do
+    if docker exec oc-redis redis-cli ping 2>/dev/null | grep -q PONG; then
+      echo "  [ok] Redis ready at $REDIS_ADDR"
+      return 0
+    fi
+    sleep 0.25
+  done
+  echo "  [warn] Redis not ready; state will be in memory" >&2
+}
+
 start_middleware() {
   echo "==> starting optional middleware (Redis :16379, TDengine :16041, Kafka :19092)"
   # Redis is light and verified; TDengine/Kafka can be memory-limited on some
@@ -161,11 +188,6 @@ start_middleware() {
     echo "  [warn] docker daemon unavailable; skipping middleware (memory fallback will be used)"
     return 0
   fi
-
-  if ! docker ps -a --format '{{.Names}}' | grep -qx 'oc-redis'; then
-    docker run -d --name oc-redis -p 16379:6379 redis:7-alpine >/dev/null 2>&1 || true
-  fi
-  docker start oc-redis >/dev/null 2>&1 || true
 
   if ! docker ps -a --format '{{.Names}}' | grep -qx 'oc-tdengine'; then
     docker run -d --name oc-tdengine -p 16041:6041 tdengine/tdengine:3.2.3.0 >/dev/null 2>&1 || true
@@ -220,6 +242,7 @@ start_all() {
   fi
 
   start_postgres
+  start_redis
   build_all
   [ "$with_middleware" = 1 ] && start_middleware
 
@@ -237,7 +260,7 @@ start_all() {
     pg_args=(-dsn "$PG_DSN")
   nohup "$BIN_DIR/gateway" \
     -addr "$TCP_ADDR" -admin "$ADMIN_ADDR" -admin-key "$ADMIN_KEYS" \
-    -bcd-order "$BCD_ORDER" ${pg_args[@]+"${pg_args[@]}"} ${extra[@]+"${extra[@]}"} >"$LOG_DIR/gateway.log" 2>&1 &
+    -bcd-order "$BCD_ORDER" -redis "$REDIS_ADDR" ${pg_args[@]+"${pg_args[@]}"} ${extra[@]+"${extra[@]}"} >"$LOG_DIR/gateway.log" 2>&1 &
   echo $! >"$PID_DIR/gateway.pid"
 
   echo "==> starting admin UI (:${FRONTEND_PORT})"

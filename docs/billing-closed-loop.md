@@ -279,3 +279,23 @@ curl http://localhost:8081/api/admin/exceptions
 **前端**：场站设备页新增 `占位(已插枪)` 状态文本与琥珀色样式。
 
 **验证**：端到端测试用 `RealtimeBody{State:2, Plugged:1}` 驱动 StateHook，admin 状态变 `occupied`；`Plugged:0` 变回 `idle`；`State:3, Plugged:1` 仍显示 `charging`。
+
+---
+
+## 待办：0x12 定时召唤（2026-11-25 记录，未实现）
+
+协议 7.1 定义 `0x12 读取实时监测数据`（平台→桩），桩回 0x13。用途是**主动探活**：对长时间没上报的在线桩召唤一次最新状态，弥补纯被动上报的盲区。
+
+方案（等确认真实桩是否支持 0x12 应答后再做）：
+- 定时器每 30s 扫描 `state.Store.LastSeen`，对超过 60s 未上报且会话在线的桩下发 0x12
+- 复用 `Server.broadcast(deviceID, 0x12, body)`，body = 7 字节桩号 BCD + 1 字节枪号
+- 召唤频率要克制，避免打扰正在充电的桩；充电中的桩直接跳过
+- 桩端若不实现 0x12 应答，此功能无意义——**先确认真实桩支持情况**
+
+## 实时设备状态（SSE + Redis，2026-11-25）
+
+- **采集侧**：维持桩主动上报（0x03 心跳 / 0x13 实时数据）为主路径
+- **状态存储**：`state.NotifyingStore` 包装 Store，每次 Update 先写底层再向 Hub 广播；切到 Redis 实现（TTL 5 分钟），网关重启状态不丢、多实例可共享
+- **推送**：`GET /api/admin/connector-events` SSE 长连接，订阅 Hub；每客户端独立缓冲 channel，慢客户端丢旧事件不阻塞桩上报；20s keepalive；鉴权支持 `X-API-Key` header / Bearer / `?api_key=`（EventSource 不能设 header，dev 代理已注入所以前端用同源即可）
+- **前端**：Stations.vue 用 EventSource 订阅，收到 status 事件增量更新 stateMap，断线 EventSource 自动重连；工具栏显示 实时/连接中/已断开 指示；保留手动刷新兜底
+- dev.sh 默认起 `oc-redis:16379` 并传 `-redis`
